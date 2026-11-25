@@ -146,7 +146,7 @@ public partial class ModesPage : Page
             if (cloudText != null)
             {
                 var provider = CloudTranscriptionProviderExtensions.FromModeCloudProvider(mode.CloudProvider);
-                if (provider == CloudTranscriptionProvider.HyperWhisperCloud)
+                if (provider == CloudTranscriptionProvider.None)
                 {
                     cloudText.Text = Loc.S("mode.editor.source.yourProvider");
                 }

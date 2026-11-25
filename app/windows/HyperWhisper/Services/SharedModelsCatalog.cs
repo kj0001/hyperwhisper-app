@@ -87,9 +87,6 @@ public static class SharedModelsCatalog
     public static bool SupportsCustomVocabulary(string provider, CatalogKind kind, string id)
         => HyperwhisperCoreMethods.ModelsSupportsCustomVocabulary(provider, ToHwKind(kind), id ?? "");
 
-    public static bool AvailableViaHyperWhisperCloud(string provider, CatalogKind kind, string id)
-        => HyperwhisperCoreMethods.ModelsAvailableViaHwCloud(provider, ToHwKind(kind), id ?? "");
-
     /// <summary>
     /// The model's user-visible name, or null when the row is not catalogued.
     ///
@@ -168,9 +165,6 @@ public static class SharedModelsCatalog
         CloudTranscriptionProvider.Soniox => "soniox",
         CloudTranscriptionProvider.Gemini => "gemini",
         CloudTranscriptionProvider.Grok => "grok",
-        CloudTranscriptionProvider.HyperWhisperCloud => "hyperwhisper",
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => "microsoftAzureSpeech",
-        CloudTranscriptionProvider.GoogleSpeech => "googleSpeech",
         CloudTranscriptionProvider.GeminiTranscribe => "geminiTranscribe",
         CloudTranscriptionProvider.Meta => "meta",
     };
@@ -186,7 +180,6 @@ public static class SharedModelsCatalog
         PostProcessingProvider.Cerebras => "cerebras",
         PostProcessingProvider.Mistral => "mistral",
         PostProcessingProvider.LocalLlm => "localLLM",
-        PostProcessingProvider.HyperWhisperCloud => "hyperwhisper",
     };
 
     // -------------------------------------------------------------------------

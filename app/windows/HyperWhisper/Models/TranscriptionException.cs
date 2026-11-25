@@ -71,10 +71,7 @@ public enum TranscriptionErrorCode
     DaemonTimeout = 16,
 
     /// <summary>Provider explicitly reported that no speech was detected in the audio.</summary>
-    NoSpeechDetected = 17,
-
-    /// <summary>HyperWhisper Cloud selected without an account (license) key.</summary>
-    CloudAccountRequired = 18
+    NoSpeechDetected = 17
 }
 
 /// <summary>
@@ -97,15 +94,6 @@ public class TranscriptionException : Exception
 
     /// <summary>Provider-specific diagnostics captured during the failed attempt.</summary>
     public TranscriptionProviderDiagnostics? ProviderDiagnostics { get; }
-
-    /// <summary>
-    /// True when a <see cref="TranscriptionErrorCode.QuotaExceeded"/> is the
-    /// HyperWhisper Cloud account being out of credits (Cloud's or the routed
-    /// path's 402), not a BYOK provider's quota. The code stays QuotaExceeded so
-    /// the in-app toast routing is unchanged; the Local API reads this to pick
-    /// the Cloud wording (#2089).
-    /// </summary>
-    public bool IsInsufficientCredits { get; init; }
 
     /// <summary>
     /// A user message that replaces the code's fixed one, for a failure the code alone
@@ -154,11 +142,6 @@ public class TranscriptionException : Exception
         TranscriptionErrorCode.Unauthorized =>
             $"Invalid {ProviderName ?? "API"} key. Please check it in the Model Library API keys manager.",
 
-        // HyperWhisper Cloud's own 402 has no provider billing page: credits are
-        // bought in the app, so point at Settings, as macOS does (#2138).
-        TranscriptionErrorCode.QuotaExceeded when IsInsufficientCredits =>
-            "Insufficient credits. Add more credits in Settings.",
-
         TranscriptionErrorCode.QuotaExceeded =>
             $"{ProviderName ?? "Provider"} quota exceeded. Add credits at the provider's billing page.",
 
@@ -202,9 +185,6 @@ public class TranscriptionException : Exception
 
         TranscriptionErrorCode.NoSpeechDetected =>
             Loc.S("errors.noSpeechDetected"),
-
-        TranscriptionErrorCode.CloudAccountRequired =>
-            "HyperWhisper Cloud requires an account key. Get credits to create one, or use your own API key.",
 
         _ => Message
     };

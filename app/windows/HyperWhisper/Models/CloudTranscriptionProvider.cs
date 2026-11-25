@@ -50,20 +50,14 @@ public enum CloudTranscriptionProvider
     /// <summary>Soniox async speech-to-text.</summary>
     Soniox = 8,
 
-    /// <summary>HyperWhisper Cloud - built-in service, no API key required.</summary>
-    HyperWhisperCloud = 9,
+    // Values 9 (HyperWhisperCloud), 12 (MicrosoftAzureSpeech), and 13 (GoogleSpeech) were removed.
+    // Numeric values are preserved for persisted BYOK modes.
 
     /// <summary>Google Gemini multimodal audio transcription.</summary>
     Gemini = 10,
 
     /// <summary>xAI Grok speech-to-text (batch HTTP).</summary>
     Grok = 11,
-
-    /// <summary>Microsoft MAI-Transcribe (2 and 1.5) via Azure Speech (HyperWhisper Cloud only).</summary>
-    MicrosoftAzureSpeech = 12,
-
-    /// <summary>Google Cloud Speech-to-Text V2 Chirp 3 (HyperWhisper Cloud only).</summary>
-    GoogleSpeech = 13,
 
     /// <summary>
     /// Google Gemini 3.5 Transcribe — the dedicated /v1beta/interactions STT
@@ -93,11 +87,8 @@ public static class CloudTranscriptionProviderExtensions
         CloudTranscriptionProvider.ElevenLabs => Loc.S("provider.elevenlabs"),
         CloudTranscriptionProvider.Mistral => Loc.S("provider.mistral"),
         CloudTranscriptionProvider.Soniox => Loc.S("provider.soniox"),
-        CloudTranscriptionProvider.HyperWhisperCloud => Loc.S("provider.hyperwhisper"),
         CloudTranscriptionProvider.Gemini => Loc.S("provider.gemini"),
         CloudTranscriptionProvider.Grok => Loc.S("provider.grok"),
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => Loc.S("provider.microsoftAzureSpeech"),
-        CloudTranscriptionProvider.GoogleSpeech => Loc.S("provider.googleSpeech"),
         CloudTranscriptionProvider.GeminiTranscribe => Loc.S("provider.geminiTranscribe"),
         CloudTranscriptionProvider.Meta => Loc.S("provider.meta"),
         _ => Loc.S("provider.none")
@@ -147,8 +138,6 @@ public static class CloudTranscriptionProviderExtensions
         CloudTranscriptionProvider.GeminiTranscribe => "providerGemini",
         CloudTranscriptionProvider.Meta => "providerMeta",
         CloudTranscriptionProvider.Grok => "providerGrok",
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => "providerMicrosoft",
-        CloudTranscriptionProvider.GoogleSpeech => "providerGoogle",
         _ => "providerLocalWhisper"
     };
 
@@ -165,11 +154,8 @@ public static class CloudTranscriptionProviderExtensions
         CloudTranscriptionProvider.ElevenLabs => "elevenlabs",
         CloudTranscriptionProvider.Mistral => "mistral",
         CloudTranscriptionProvider.Soniox => "soniox",
-        CloudTranscriptionProvider.HyperWhisperCloud => "hyperwhisper",
         CloudTranscriptionProvider.Gemini => "gemini",
         CloudTranscriptionProvider.Grok => "grok",
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => "microsoftAzureSpeech",
-        CloudTranscriptionProvider.GoogleSpeech => "googleSpeech",
         CloudTranscriptionProvider.GeminiTranscribe => "geminiTranscribe",
         CloudTranscriptionProvider.Meta => "meta",
         _ => ""
@@ -187,11 +173,8 @@ public static class CloudTranscriptionProviderExtensions
         "elevenlabs" => CloudTranscriptionProvider.ElevenLabs,
         "mistral" => CloudTranscriptionProvider.Mistral,
         "soniox" => CloudTranscriptionProvider.Soniox,
-        "hyperwhisper" => CloudTranscriptionProvider.HyperWhisperCloud,
         "gemini" => CloudTranscriptionProvider.Gemini,
         "grok" => CloudTranscriptionProvider.Grok,
-        "microsoftazurespeech" => CloudTranscriptionProvider.MicrosoftAzureSpeech,
-        "googlespeech" => CloudTranscriptionProvider.GoogleSpeech,
         // Lower-cased form of the "geminiTranscribe" identifier — the switch runs
         // on ToLowerInvariant(), so the camelCase spelling would never match.
         "geminitranscribe" => CloudTranscriptionProvider.GeminiTranscribe,
@@ -200,55 +183,18 @@ public static class CloudTranscriptionProviderExtensions
     };
 
     /// <summary>
-    /// Parses the stored <c>Mode.CloudProvider</c> of a CLOUD mode. A missing
-    /// (null, empty or whitespace) value means HyperWhisper Cloud.
-    ///
-    /// <c>openapi.yaml</c> marks <c>cloudProvider</c> optional, so
-    /// <c>POST /modes</c> with <c>"model":"cloud"</c> and no
-    /// <c>cloudProvider</c> stores null, and so did every older build. macOS
-    /// reads that nil as <c>"hyperwhisper"</c> (<c>ModeData.swift</c>,
-    /// <c>ModeCard.swift</c>, <c>CloudSTTCatalog.swift</c>); Windows read it as
-    /// <see cref="CloudTranscriptionProvider.None"/>, so the Modes card said
-    /// "None" and every transcription failed with "Unknown cloud provider: None"
-    /// (issue #1521). Defaulting at the READ keeps the stored value and the
-    /// Local API response as they are (both heads answer GET /modes with no
-    /// <c>cloudProvider</c>) and heals modes older builds already saved.
-    ///
-    /// A non-blank value that is not a known identifier still parses to
-    /// <see cref="CloudTranscriptionProvider.None"/>: that is a bad value, not
-    /// an omitted one, and guessing a vendor for it is a different decision.
-    ///
-    /// Call this only where the mode is a cloud mode. A local mode carries a
-    /// null <c>CloudProvider</c> on purpose (<c>LocalModeModel.ApplyOnDevice</c>).
-    ///
-    /// The blank rule is the shared core's
-    /// (<c>cloud_stt_effective_mode_cloud_provider</c>, issue #1709), read through
-    /// <c>SharedCoreBridge.EffectiveModeCloudProvider</c> exactly as the Linux
-    /// head and macOS read it, so the three heads cannot drift apart. A
-    /// non-blank value is parsed as stored, as before.
+    /// Parses the stored <c>Mode.CloudProvider</c> of a cloud mode.
+    /// Legacy HyperWhisper Cloud or blank values resolve to <see cref="CloudTranscriptionProvider.None"/>.
     /// </summary>
     public static CloudTranscriptionProvider FromModeCloudProvider(string? identifier)
-        => FromIdentifier(global::HyperWhisper.SharedCore.SharedCoreBridge.EffectiveModeCloudProvider(identifier));
+        => FromIdentifier(identifier);
 
     /// <summary>
-    /// Parses a <c>cloud-stt-catalog.json</c> <c>sttProvider</c> value — the
-    /// backend's <c>X-STT-Provider</c> dispatch key — to this enum.
-    ///
-    /// This is a DIFFERENT namespace from <see cref="FromIdentifier"/>, which
-    /// parses the identifiers we persist in a mode (<c>GetIdentifier()</c>'s
-    /// inverse). Two catalog values exist only here and have no storage
-    /// identifier spelling: <c>azure-mai</c> and <c>gemini-transcribe</c>.
-    /// Feeding either to <see cref="FromIdentifier"/> returns
-    /// <see cref="CloudTranscriptionProvider.None"/>, which is what silently
-    /// disabled the Mode editor's per-model Azure language filter — the branch
-    /// was there, the resolution never reached it.
-    ///
-    /// Everything else delegates, so the two namespaces stay one table.
+    /// Parses a <c>cloud-stt-catalog.json</c> <c>sttProvider</c> value to this enum.
     /// </summary>
     public static CloudTranscriptionProvider FromCatalogSttProvider(string? sttProvider)
         => sttProvider?.Trim().ToLowerInvariant() switch
         {
-            "azure-mai" => CloudTranscriptionProvider.MicrosoftAzureSpeech,
             "gemini-transcribe" => CloudTranscriptionProvider.GeminiTranscribe,
             var other => FromIdentifier(other),
         };
@@ -305,9 +251,6 @@ public static class CloudTranscriptionProviderExtensions
     public static bool RequiresApiKey(this CloudTranscriptionProvider provider) => provider switch
     {
         CloudTranscriptionProvider.None => false,
-        CloudTranscriptionProvider.HyperWhisperCloud => false,
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => false,
-        CloudTranscriptionProvider.GoogleSpeech => false,
         _ => true
     };
 
@@ -323,13 +266,10 @@ public static class CloudTranscriptionProviderExtensions
         CloudTranscriptionProvider.ElevenLabs => "https://elevenlabs.io/app/settings/api-keys",
         CloudTranscriptionProvider.Mistral => "https://console.mistral.ai/api-keys",
         CloudTranscriptionProvider.Soniox => "https://console.soniox.com",
-        CloudTranscriptionProvider.HyperWhisperCloud => "", // No API key needed
         CloudTranscriptionProvider.Gemini => "https://aistudio.google.com/apikey",
         // Same Google AI Studio console as Gemini — one place issues both keys.
         CloudTranscriptionProvider.GeminiTranscribe => "https://aistudio.google.com/apikey",
         CloudTranscriptionProvider.Grok => "https://console.x.ai/",
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => "",
-        CloudTranscriptionProvider.GoogleSpeech => "",
         CloudTranscriptionProvider.Meta => "https://dev.meta.ai/docs/speech-to-text/",
         _ => ""
     };
@@ -346,16 +286,9 @@ public static class CloudTranscriptionProviderExtensions
         // Gemini 3.5 Transcribe sends the audio INLINE as base64 in the JSON body
         // (~33% inflation), so the raw-file cap is well below the request cap.
         CloudTranscriptionProvider.GeminiTranscribe => 14L * 1024 * 1024, // 14 MB raw
-        // The server's body cap (hyperwhisper-cloud MAX_AUDIO_SIZE_BYTES). A larger
-        // upload gets Bun's bare 413, which has no size message.
-        CloudTranscriptionProvider.HyperWhisperCloud => 128L * 1024 * 1024, // 128 MB
         CloudTranscriptionProvider.Mistral => 100L * 1024 * 1024, // 100 MB
         CloudTranscriptionProvider.Soniox => 1L * 1024 * 1024 * 1024, // 1 GB
         CloudTranscriptionProvider.Grok => 500L * 1024 * 1024, // 500 MB
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => 300L * 1024 * 1024, // 300 MB
-        // Google Speech V2 inline `content` caps near 10 MB. Matches the
-        // backend's 9.5 MB AudioTooLargeError guard.
-        CloudTranscriptionProvider.GoogleSpeech => 9_500_000L,
         CloudTranscriptionProvider.Meta => 32L * 1024 * 1024,
         _ => 25L * 1024 * 1024 // 25 MB (OpenAI, Groq)
     };
@@ -365,18 +298,6 @@ public static class CloudTranscriptionProviderExtensions
     /// </summary>
     public static bool SupportsVocabulary(this CloudTranscriptionProvider provider) => provider switch
     {
-        // ElevenLabs: Scribe v2 supports vocabulary, v1 doesn't (model-specific check in UI)
-        // Azure MAI + Google Chirp 3 are surfaced as HW Cloud accuracy tiers
-        // since PR #521; they no longer appear in the standalone BYOK list.
-        // Any un-migrated mode that still hits the BYOK path with these
-        // provider values must NOT ship `initial_prompt` (Chirp 3 takes a
-        // phrase set on the routed path only, Azure MAI uses a different
-        // field). The HW Cloud send path has its own catalog-driven gate.
-        // GeminiTranscribe takes a real `custom_vocabulary` field on
-        // /v1beta/interactions, so it belongs in the `true` default below —
-        // listed here only so an audit grep for the provider finds this site.
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => false,
-        CloudTranscriptionProvider.GoogleSpeech => false,
         CloudTranscriptionProvider.None => false,
         _ => true
     };

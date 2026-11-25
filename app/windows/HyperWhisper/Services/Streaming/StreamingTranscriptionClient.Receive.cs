@@ -134,9 +134,9 @@ public sealed partial class StreamingTranscriptionClient
         : SharedCoreBridge.LiveUpgradeRefusal((int)webSocket.HttpStatusCode) switch
         {
             PortableLiveUpgradeRefusal.InsufficientCredits =>
-                "Streaming could not start because credits are exhausted. Add more credits in Settings.",
+                "Streaming could not start because the provider returned payment/quota required. Check your API account.",
             PortableLiveUpgradeRefusal.Unauthorized =>
-                "Streaming could not start because the account key was refused. Check your key in Settings.",
+                "Streaming could not start because the API key was refused. Check your key in Settings.",
             _ => null
         };
 

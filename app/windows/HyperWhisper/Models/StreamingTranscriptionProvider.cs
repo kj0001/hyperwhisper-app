@@ -14,7 +14,6 @@ namespace HyperWhisper.Models;
 /// </summary>
 public enum StreamingTranscriptionProvider
 {
-    HyperWhisperCloud,
     Deepgram,
     ElevenLabs,
     OpenAI,
@@ -26,47 +25,56 @@ public static class StreamingTranscriptionProviderExtensions
 {
     public static string StorageValue(this StreamingTranscriptionProvider provider) => provider switch
     {
-        StreamingTranscriptionProvider.HyperWhisperCloud => "hyperwhisperCloud",
         StreamingTranscriptionProvider.Deepgram => "deepgram",
         StreamingTranscriptionProvider.ElevenLabs => "elevenLabs",
         StreamingTranscriptionProvider.OpenAI => "openAI",
         StreamingTranscriptionProvider.Xai => "xai",
         StreamingTranscriptionProvider.GeminiTranscribe => "geminiTranscribe",
-        _ => "hyperwhisperCloud"
+        _ => "deepgram"
     };
 
     public static string DisplayName(this StreamingTranscriptionProvider provider) => provider switch
     {
-        StreamingTranscriptionProvider.HyperWhisperCloud => "HyperWhisper Cloud",
         StreamingTranscriptionProvider.Deepgram => "Deepgram",
         StreamingTranscriptionProvider.ElevenLabs => "ElevenLabs",
         StreamingTranscriptionProvider.OpenAI => "OpenAI",
         StreamingTranscriptionProvider.Xai => "SpaceXAI",
         StreamingTranscriptionProvider.GeminiTranscribe => "Gemini 3.5 Transcribe",
-        _ => "HyperWhisper Cloud"
+        _ => "Deepgram"
     };
 
-    public static bool RequiresApiKey(this StreamingTranscriptionProvider provider) => provider switch
-    {
-        StreamingTranscriptionProvider.HyperWhisperCloud => false,
-        StreamingTranscriptionProvider.Deepgram => true,
-        StreamingTranscriptionProvider.ElevenLabs => true,
-        StreamingTranscriptionProvider.OpenAI => true,
-        StreamingTranscriptionProvider.Xai => true,
-        StreamingTranscriptionProvider.GeminiTranscribe => true,
-        _ => false
-    };
+    public static bool RequiresApiKey(this StreamingTranscriptionProvider provider) => true;
 
     public static bool IsValidStorageValue(string? value) =>
         value is "hyperwhisperCloud" or "deepgram" or "elevenLabs" or "openAI" or "xai" or "geminiTranscribe";
 
-    public static StreamingTranscriptionProvider FromStorageValue(string? value) => value switch
+    public static bool TryFromStorageValue(string? value, out StreamingTranscriptionProvider provider)
     {
-        "deepgram" => StreamingTranscriptionProvider.Deepgram,
-        "elevenLabs" => StreamingTranscriptionProvider.ElevenLabs,
-        "openAI" => StreamingTranscriptionProvider.OpenAI,
-        "xai" => StreamingTranscriptionProvider.Xai,
-        "geminiTranscribe" => StreamingTranscriptionProvider.GeminiTranscribe,
-        _ => StreamingTranscriptionProvider.HyperWhisperCloud
-    };
+        switch (value)
+        {
+            case "deepgram":
+                provider = StreamingTranscriptionProvider.Deepgram;
+                return true;
+            case "elevenLabs":
+                provider = StreamingTranscriptionProvider.ElevenLabs;
+                return true;
+            case "openAI":
+                provider = StreamingTranscriptionProvider.OpenAI;
+                return true;
+            case "xai":
+                provider = StreamingTranscriptionProvider.Xai;
+                return true;
+            case "geminiTranscribe":
+                provider = StreamingTranscriptionProvider.GeminiTranscribe;
+                return true;
+            default:
+                provider = default;
+                return false;
+        }
+    }
+
+    public static StreamingTranscriptionProvider FromStorageValue(string? value) =>
+        TryFromStorageValue(value, out var provider)
+            ? provider
+            : StreamingTranscriptionProvider.Deepgram;
 }

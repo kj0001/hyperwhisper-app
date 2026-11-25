@@ -156,7 +156,7 @@ public partial class SettingsService
         _settings.StreamingEnabled ??= false;
         _settings.StreamingProvider = Models.StreamingTranscriptionProviderExtensions.IsValidStorageValue(_settings.StreamingProvider)
             ? _settings.StreamingProvider
-            : Models.StreamingTranscriptionProvider.HyperWhisperCloud.StorageValue();
+            : Models.StreamingTranscriptionProvider.Deepgram.StorageValue();
         _settings.StreamingLanguage = string.IsNullOrWhiteSpace(_settings.StreamingLanguage) ? "en" : _settings.StreamingLanguage;
 
         // Migrate removed Deepgram model IDs (2026-05 catalog cleanup) to

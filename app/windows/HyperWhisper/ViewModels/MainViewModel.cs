@@ -333,12 +333,8 @@ public partial class MainViewModel : ViewModelBase
 
     // =========================================================================
     // MODEL STATUS SOURCES (#649)
-    // The cloud half of the status bar depends on the HyperWhisper Cloud licence
-    // and on the BYOK keys, so it has to be recomputed when either changes, with
-    // no restart.
+    // Recompute the status bar when BYOK keys or cached provider health change.
     // =========================================================================
-
-    internal Func<bool>? CloudAccountKeyPresentOverride { get; set; }
 
     /// <summary>Test seam: null in the app, which uses <see cref="ApiKeyService.Instance"/>.</summary>
     internal ApiKeyService? ApiKeyServiceOverride { get; set; }
@@ -354,14 +350,6 @@ public partial class MainViewModel : ViewModelBase
 
     private CloudProviderHealthService ModelStatusProviderHealth =>
         ProviderHealthOverride ?? CloudProviderHealthService.Instance;
-
-    private bool CloudAccountKeyPresent() =>
-        (CloudAccountKeyPresentOverride ?? (() => LicenseManager.Instance.GetTranscriptionIdentifier().IsLicensed))();
-
-    private static bool UsesCloudAccountKey(CloudTranscriptionProvider provider) => provider is
-        CloudTranscriptionProvider.HyperWhisperCloud
-        or CloudTranscriptionProvider.MicrosoftAzureSpeech
-        or CloudTranscriptionProvider.GoogleSpeech;
 
     // =========================================================================
     // DICTATION SEAMS (#2241)
@@ -392,7 +380,6 @@ public partial class MainViewModel : ViewModelBase
     internal void AttachModelStatusSources()
     {
         DetachModelStatusSources();
-        LicenseManager.Instance.LicenseStatusChanged += OnModelStatusSourceChanged;
         _subscribedApiKeyService = ModelStatusApiKeys;
         _subscribedApiKeyService.ApiKeysChanged += OnModelStatusSourceChanged;
         _subscribedProviderHealth = ModelStatusProviderHealth;
@@ -401,7 +388,6 @@ public partial class MainViewModel : ViewModelBase
 
     internal void DetachModelStatusSources()
     {
-        LicenseManager.Instance.LicenseStatusChanged -= OnModelStatusSourceChanged;
         if (_subscribedApiKeyService != null)
         {
             _subscribedApiKeyService.ApiKeysChanged -= OnModelStatusSourceChanged;
@@ -482,34 +468,14 @@ public partial class MainViewModel : ViewModelBase
     /// check, so an offline or unprobed provider never turns Ready into an error.
     /// </summary>
     internal static string CloudModelStatusKey(
-        CloudTranscriptionProvider provider, bool cloudAccountKeyPresent, bool hasApiKey,
-        ProviderHealth health)
+        CloudTranscriptionProvider provider, bool hasApiKey, ProviderHealth health)
     {
-        if (UsesCloudAccountKey(provider))
-            return cloudAccountKeyPresent ? "status.model.ready" : "status.model.notActivated";
-
-        // None has no key slot; it is not a provider this can judge, so it keeps
-        // the old wording rather than inventing a missing key.
         if (provider == CloudTranscriptionProvider.None)
-            return "status.model.ready";
+            return "status.model.noApiKey";
 
         if (!hasApiKey) return "status.model.noApiKey";
         return health == ProviderHealth.Unauthorized ? "status.model.keyInvalid" : "status.model.ready";
     }
-
-    /// <summary>
-    /// Starts the foreground HyperWhisper Cloud keepalive ticker. Wired from
-    /// <c>MainWindow.Activated</c>; pair with <see cref="StopCloudKeepalive"/>
-    /// on <c>MainWindow.Deactivated</c>.
-    /// </summary>
-    public void StartCloudKeepalive()
-        => _transcriptionOrchestrator.StartKeepalive(() => SelectedMode);
-
-    /// <summary>
-    /// Stops the foreground HyperWhisper Cloud keepalive ticker.
-    /// </summary>
-    public void StopCloudKeepalive()
-        => _transcriptionOrchestrator.StopKeepalive();
 
     private void OnSettingsChanged(object? sender, EventArgs e)
     {
@@ -795,11 +761,10 @@ public partial class MainViewModel : ViewModelBase
         }
 
         var isCredentialError = txEx.Code is TranscriptionErrorCode.ApiKeyMissing or TranscriptionErrorCode.Unauthorized;
-        var isCloudAccountError = txEx.Code == TranscriptionErrorCode.CloudAccountRequired;
         return new ErrorToastEventArgs(
             txEx.GetUserMessage(),
-            showSettingsButton: isCredentialError || isCloudAccountError,
-            settingsSection: isCloudAccountError ? "Cloud" : null,
+            showSettingsButton: isCredentialError,
+            settingsSection: null,
             openApiKeysManager: isCredentialError);
     }
 
@@ -1829,16 +1794,13 @@ public partial class MainViewModel : ViewModelBase
             var providerName = provider.GetDisplayName();
             var model = CloudTranscriptionModels.GetById(SelectedMode.CloudTranscriptionModel, provider)
                         ?? CloudTranscriptionModels.GetDefault(provider);
-            var cloudStatus = provider == CloudTranscriptionProvider.HyperWhisperCloud || string.IsNullOrWhiteSpace(model?.DisplayName)
+            var cloudStatus = string.IsNullOrWhiteSpace(model?.DisplayName)
                 ? providerName
                 : $"{providerName} - {model.DisplayName}";
             // Read only the credential this provider needs (#649).
-            var usesAccountKey = UsesCloudAccountKey(provider);
             var statusKey = CloudModelStatusKey(
                 provider,
-                cloudAccountKeyPresent: usesAccountKey && CloudAccountKeyPresent(),
-                hasApiKey: !usesAccountKey
-                    && provider != CloudTranscriptionProvider.None
+                hasApiKey: provider != CloudTranscriptionProvider.None
                     && ModelStatusApiKeys.HasApiKey(provider),
                 // The cached probe verdict only; the status bar never probes.
                 health: ModelStatusProviderHealth.GetStatus(provider));
@@ -1938,7 +1900,6 @@ public partial class MainViewModel : ViewModelBase
         switch (e.Name)
         {
             case "toggle":
-                _transcriptionOrchestrator.PrewarmCloudConnectionIfActive(SelectedMode);
                 if (IsStreamingActive())
                 {
                     ShowErrorToastRequested?.Invoke(this, new ErrorToastEventArgs(
@@ -2040,7 +2001,6 @@ public partial class MainViewModel : ViewModelBase
         // device/OCR/audio failure becomes a logged error and the monitor returns to idle.
         try
         {
-            _transcriptionOrchestrator.PrewarmCloudConnectionIfActive(SelectedMode);
             if (IsStreamingActive())
             {
                 _pushToTalkMonitor.ResetToIdle();

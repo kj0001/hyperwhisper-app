@@ -14,8 +14,8 @@ public enum PostProcessingProvider
     /// <summary>No post-processing - returns raw transcription.</summary>
     None,
 
-    /// <summary>HyperWhisper Cloud - built-in cloud post-processing (no API key required).</summary>
-    HyperWhisperCloud,
+    // HyperWhisperCloud removed (legacy values map to None for runtime, while
+    // NormalizeStorageValue / ToUniversalStorageValue preserve strings for backup parity).
 
     /// <summary>OpenAI API (GPT-4.1 models).</summary>
     OpenAI,
@@ -55,7 +55,6 @@ public static class PostProcessingProviderExtensions
     public static string ToDisplayName(this PostProcessingProvider provider) => provider switch
     {
         PostProcessingProvider.None => Loc.S("common.off"),
-        PostProcessingProvider.HyperWhisperCloud => Loc.S("provider.hyperwhisper"),
         PostProcessingProvider.OpenAI => Loc.S("provider.openai"),
         PostProcessingProvider.Anthropic => Loc.S("provider.anthropic"),
         PostProcessingProvider.Groq => Loc.S("provider.groq"),
@@ -74,7 +73,6 @@ public static class PostProcessingProviderExtensions
     public static string ToStringValue(this PostProcessingProvider provider) => provider switch
     {
         PostProcessingProvider.None => "none",
-        PostProcessingProvider.HyperWhisperCloud => "hyperwhispercloud",
         PostProcessingProvider.OpenAI => "openai",
         PostProcessingProvider.Anthropic => "anthropic",
         PostProcessingProvider.Groq => "groq",
@@ -92,9 +90,6 @@ public static class PostProcessingProviderExtensions
     /// </summary>
     public static PostProcessingProvider FromString(string? value) => value?.ToLowerInvariant() switch
     {
-        "hyperwhispercloud" => PostProcessingProvider.HyperWhisperCloud,
-        "hyperwhisper" => PostProcessingProvider.HyperWhisperCloud,
-        "hyperwhisper_cloud" => PostProcessingProvider.HyperWhisperCloud,
         "openai" => PostProcessingProvider.OpenAI,
         "anthropic" => PostProcessingProvider.Anthropic,
         "groq" => PostProcessingProvider.Groq,
@@ -110,10 +105,12 @@ public static class PostProcessingProviderExtensions
         _ => PostProcessingProvider.None
     };
 
+    private static bool IsLegacyHyperWhisperCloudValue(string value) =>
+        value.ToLowerInvariant() is "hyperwhispercloud" or "hyperwhisper" or "hyperwhisper_cloud";
+
     /// <summary>
-    /// Normalizes provider strings from other platforms while preserving custom endpoint IDs.
-    /// macOS stores HyperWhisper Cloud post-processing as "hyperwhisper"; Windows
-    /// historically stores it as "hyperwhispercloud".
+    /// Normalizes provider strings from other platforms while preserving custom endpoint IDs
+    /// and legacy backup storage strings.
     /// </summary>
     public static string? NormalizeStorageValue(string? value)
     {
@@ -122,6 +119,9 @@ public static class PostProcessingProviderExtensions
 
         if (CustomPostProcessingEndpoint.IsCustomProviderString(value))
             return value;
+
+        if (IsLegacyHyperWhisperCloudValue(value))
+            return "hyperwhispercloud";
 
         var provider = FromString(value);
         return provider == PostProcessingProvider.None ? value : provider.ToStringValue();
@@ -138,23 +138,19 @@ public static class PostProcessingProviderExtensions
         if (CustomPostProcessingEndpoint.IsCustomProviderString(value))
             return value;
 
+        if (IsLegacyHyperWhisperCloudValue(value))
+            return "hyperwhisper";
+
         var provider = FromString(value);
-        return provider switch
-        {
-            PostProcessingProvider.HyperWhisperCloud => "hyperwhisper",
-            PostProcessingProvider.None => value,
-            _ => provider.ToStringValue()
-        };
+        return provider == PostProcessingProvider.None ? value : provider.ToStringValue();
     }
 
     /// <summary>
     /// Gets the setting name used for storing the API key.
     /// Each provider has a unique key stored via ApiKeyService.
-    /// HyperWhisperCloud doesn't require an API key.
     /// </summary>
     public static string GetApiKeySettingName(this PostProcessingProvider provider) => provider switch
     {
-        PostProcessingProvider.HyperWhisperCloud => "", // No API key required
         PostProcessingProvider.OpenAI => "OpenAIApiKey",
         PostProcessingProvider.Anthropic => "AnthropicApiKey",
         PostProcessingProvider.Groq => "GroqApiKey",
@@ -171,12 +167,10 @@ public static class PostProcessingProviderExtensions
 
     /// <summary>
     /// Returns true if this provider requires an API key.
-    /// HyperWhisperCloud and None do not require API keys.
     /// </summary>
     public static bool RequiresApiKey(this PostProcessingProvider provider) => provider switch
     {
         PostProcessingProvider.None => false,
-        PostProcessingProvider.HyperWhisperCloud => false,
         PostProcessingProvider.LocalLlm => false,
         _ => true
     };

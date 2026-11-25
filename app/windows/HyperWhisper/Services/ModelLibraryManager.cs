@@ -184,8 +184,7 @@ public sealed class ModelLibraryManager
     private IEnumerable<LibraryModel> BuildPostProcessingRows(ApiKeyPresence keys)
     {
         foreach (var model in LanguageModelInfo.AvailableModels.Where(
-                     m => m.Provider != PostProcessingProvider.LocalLlm
-                          && m.Provider != PostProcessingProvider.HyperWhisperCloud))
+                     m => m.Provider != PostProcessingProvider.LocalLlm))
         {
             var providerKey = SharedModelsCatalog.CatalogKey(model.Provider);
             yield return new LibraryModel

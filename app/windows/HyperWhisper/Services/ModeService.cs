@@ -259,57 +259,9 @@ public class ModeService
 
                 foreach (var mode in modes)
                 {
-                    var existingTier = mode.CloudAccuracyTier;
-                    var normalizedTier = CloudAccuracyTierExtensions
-                        .FromString(existingTier)
-                        .ToStorageValue();
-
-                    if (!string.Equals(existingTier, normalizedTier, StringComparison.Ordinal))
-                    {
-                        mode.CloudAccuracyTier = normalizedTier;
-                        changedFields++;
-                    }
-
-                    var normalizedPostProcessingModel = CloudPostProcessingModelExtensions
-                        .FromString(mode.CloudPostProcessingModel)
-                        .ToStorageValue();
-
-                    if (!string.Equals(mode.CloudPostProcessingModel, normalizedPostProcessingModel, StringComparison.Ordinal))
-                    {
-                        mode.CloudPostProcessingModel = normalizedPostProcessingModel;
-                        changedFields++;
-                    }
-
-                    var normalizedProvider = AppClassification.CloudSttCatalog.Shared
-                        .NormalizeCloudProvider(mode.CloudProvider);
-                    if (!string.Equals(normalizedProvider.Provider, mode.CloudProvider, StringComparison.Ordinal))
-                    {
-                        mode.CloudProvider = normalizedProvider.Provider;
-                        changedFields++;
-                    }
-
-                    if (!string.IsNullOrEmpty(normalizedProvider.AccuracyTier)
-                        && !string.Equals(mode.CloudAccuracyTier, normalizedProvider.AccuracyTier, StringComparison.Ordinal))
-                    {
-                        var tierWasDefaultOrEmpty =
-                            string.IsNullOrWhiteSpace(existingTier)
-                            || string.Equals(normalizedTier, CloudAccuracyTier.DeepgramNova3.ToStorageValue(), StringComparison.Ordinal);
-
-                        if (tierWasDefaultOrEmpty)
-                        {
-                            mode.CloudAccuracyTier = normalizedProvider.AccuracyTier;
-                            changedFields++;
-                        }
-                    }
-
                     if (!string.IsNullOrEmpty(mode.CloudTranscriptionModel))
                     {
-                        // A cloud mode's blank provider is HyperWhisper Cloud (the shared
-                        // rule, #1709); a local mode keeps the raw parse, whose None chains
-                        // every alias table.
-                        var provider = LocalModeModel.IsCloud(mode)
-                            ? CloudTranscriptionProviderExtensions.FromModeCloudProvider(mode.CloudProvider)
-                            : CloudTranscriptionProviderExtensions.FromIdentifier(mode.CloudProvider);
+                        var provider = CloudTranscriptionProviderExtensions.FromModeCloudProvider(mode.CloudProvider);
                         var normalizedModel = CloudTranscriptionModels.ResolveModelAlias(mode.CloudTranscriptionModel, provider);
                         if (!string.Equals(mode.CloudTranscriptionModel, normalizedModel, StringComparison.Ordinal))
                         {

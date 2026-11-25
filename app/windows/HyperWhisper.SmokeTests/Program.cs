@@ -4977,38 +4977,6 @@ internal static class Program
                 }
             });
 
-            // Issue #511. "Your license key is no longer valid. Enter a new key
-            // below, or get credits to create one." is a statement about a licence
-            // this device once had. A fresh install that mistyped its first-ever
-            // key got it too, because the branch tested the status and nothing
-            // else — so the first thing the page ever said about the customer's
-            // account was untrue, and it pointed at billing instead of the typo.
-            Run("the lapsed-licence banner needs a licence that lapsed — issue #511", () =>
-            {
-                // No stored key means no licence has ever worked on this device:
-                // LicenseNetworkService persists a key only after it validates.
-                foreach (var status in Enum.GetValues<LicenseStatus>())
-                {
-                    Assert(!LicenseManager.ShouldExplainLapsedLicense(status, hasStoredKey: false),
-                        $"{status} with no stored key claimed a licence had lapsed on a device that "
-                        + "has never had one");
-                }
-
-                // With a stored key the banner is right, and it is the whole point
-                // of the branch — a returning customer must not get a fresh-install
-                // screen with no explanation.
-                Assert(LicenseManager.ShouldExplainLapsedLicense(LicenseStatus.Expired, hasStoredKey: true),
-                    "a stored key that expired must still be explained");
-                Assert(LicenseManager.ShouldExplainLapsedLicense(LicenseStatus.Invalid, hasStoredKey: true),
-                    "a stored key that was revoked must still be explained");
-
-                // And a working or unlicensed device is not a lapse either way.
-                Assert(!LicenseManager.ShouldExplainLapsedLicense(LicenseStatus.Active, hasStoredKey: true),
-                    "an active licence must not be reported as lapsed");
-                Assert(!LicenseManager.ShouldExplainLapsedLicense(LicenseStatus.Trial, hasStoredKey: true),
-                    "a device back in trial must not be reported as lapsed");
-            });
-
             Run("Deepgram parses every message shape of its \"channel\" field", () =>
             {
                 using var strategy = LiveStrategy(StreamingTranscriptionProvider.Deepgram);
@@ -5462,122 +5430,6 @@ internal static class Program
                     "the migrated pin should cover every backend");
                 Assert(!launch.CrashedPreviously(rig.Model, "Some Other GPU", LocalLlmGpuHelper.CudaBackendId),
                     "the migrated pin carries the GPU identity at migration time");
-            });
-
-            // Issue #1036: the Cloud connection-recovery rules, on a fake clock and a
-            // stub handler (CloudConnectionRig). Each check fails when its rule is removed.
-            RunAsync("Cloud warmup debounce: a 2nd prewarm inside 60s sends nothing, one at 60s sends (#1036)", async () =>
-            {
-                using var rig = new CloudConnectionRig(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
-                var t = rig.Now;
-
-                await rig.Service.PrewarmConnectionAsync();
-                Assert(rig.Handler.Sends == 1, $"first prewarm sends {rig.Handler.Sends}");
-
-                rig.Now = t.AddSeconds(59);
-                await rig.Service.PrewarmConnectionAsync();
-                Assert(rig.Handler.Sends == 1, $"prewarm at t+59s sends {rig.Handler.Sends}, want the debounce to hold");
-
-                rig.Now = t.AddSeconds(60);
-                await rig.Service.PrewarmConnectionAsync();
-                Assert(rig.Handler.Sends == 2, $"prewarm at t+60s sends {rig.Handler.Sends}, want the window to be over");
-            });
-
-            RunAsync("Cloud forced warmup sends inside the debounce window (#1036)", async () =>
-            {
-                // The public entry returns void, so the 2nd send signals instead of being awaited.
-                var sends = 0;
-                var secondSend = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                using var rig = new CloudConnectionRig(_ =>
-                {
-                    if (Interlocked.Increment(ref sends) == 2) secondSend.TrySetResult();
-                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
-                });
-                var t = rig.Now;
-
-                await rig.Service.PrewarmConnectionAsync();
-                rig.Now = t.AddSeconds(1);
-                rig.Service.PrewarmConnectionForced();
-                try { await secondSend.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
-                catch (TimeoutException) { throw new InvalidOperationException($"forced warmup at t+1s never sent ({sends} sends)"); }
-            });
-
-            RunAsync("Cloud warmup that fails clears the debounce, so the next prewarm retries (#1036)", async () =>
-            {
-                using var rig = new CloudConnectionRig(_ => throw new HttpRequestException("connection refused",
-                    new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused)));
-                var t = rig.Now;
-
-                await rig.Service.PrewarmConnectionAsync();
-                rig.Now = t.AddSeconds(1);
-                await rig.Service.PrewarmConnectionAsync();
-                Assert(rig.Handler.Sends == 2, $"prewarm at t+1s after a failure sends {rig.Handler.Sends}, want a retry");
-                Assert(rig.ClientsBuilt == 1, $"a refused connection rebuilt the client ({rig.ClientsBuilt} built)");
-            });
-
-            RunAsync("Cloud DNS failure: only HostNotFound/TryAgain, at any depth, rebuild the client (#1036)", async () =>
-            {
-                static Exception Wrapped(System.Net.Sockets.SocketError code) =>
-                    new HttpRequestException("send failed", new System.Net.Sockets.SocketException((int)code));
-
-                Assert(HyperWhisperCloudService.IsDnsError(Wrapped(System.Net.Sockets.SocketError.HostNotFound)), "HostNotFound is not DNS");
-                Assert(HyperWhisperCloudService.IsDnsError(Wrapped(System.Net.Sockets.SocketError.TryAgain)), "TryAgain is not DNS");
-                Assert(HyperWhisperCloudService.IsDnsError(new TaskCanceledException("outer", Wrapped(System.Net.Sockets.SocketError.HostNotFound))),
-                    "a DNS error two levels down is not found");
-                Assert(!HyperWhisperCloudService.IsDnsError(Wrapped(System.Net.Sockets.SocketError.ConnectionRefused)), "ConnectionRefused counts as DNS");
-                Assert(!HyperWhisperCloudService.IsDnsError(new HttpRequestException("no socket")), "a bare HttpRequestException counts as DNS");
-
-                using (var dns = new CloudConnectionRig(_ => throw Wrapped(System.Net.Sockets.SocketError.HostNotFound)))
-                {
-                    await dns.Service.PrewarmConnectionAsync();
-                    Assert(dns.ClientsBuilt == 2, $"a HostNotFound warmup built {dns.ClientsBuilt} clients, want a rebuild");
-                }
-                using (var refused = new CloudConnectionRig(_ => throw Wrapped(System.Net.Sockets.SocketError.ConnectionRefused)))
-                {
-                    await refused.Service.PrewarmConnectionAsync();
-                    Assert(refused.ClientsBuilt == 1, $"a ConnectionRefused warmup built {refused.ClientsBuilt} clients, want none rebuilt");
-                }
-            });
-
-            RunAsync("Cloud DNS rebuild runs at most once per 60s (#1036)", async () =>
-            {
-                using var rig = new CloudConnectionRig(_ => throw new HttpRequestException("dns",
-                    new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.HostNotFound)));
-                var t = rig.Now;
-
-                await rig.Service.PrewarmConnectionAsync();
-                Assert(rig.ClientsBuilt == 2, $"first DNS failure built {rig.ClientsBuilt} clients");
-
-                rig.Now = t.AddSeconds(30);
-                await rig.Service.PrewarmConnectionAsync();
-                Assert(rig.Handler.Sends == 2, $"retry at t+30s sends {rig.Handler.Sends}");
-                Assert(rig.ClientsBuilt == 2, $"DNS failure at t+30s rebuilt again ({rig.ClientsBuilt} built)");
-
-                rig.Now = t.AddSeconds(60);
-                await rig.Service.PrewarmConnectionAsync();
-                Assert(rig.ClientsBuilt == 3, $"DNS failure at t+60s built {rig.ClientsBuilt} clients, want a 2nd rebuild");
-            });
-
-            RunAsync("Cloud DNS failure after Dispose does not rebuild the client (#1036)", async () =>
-            {
-                var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var rig = new CloudConnectionRig(async _ =>
-                {
-                    entered.SetResult();
-                    await release.Task;
-                    throw new HttpRequestException("dns",
-                        new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.HostNotFound));
-                });
-
-                var warmup = rig.Service.PrewarmConnectionAsync();
-                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                rig.Dispose();
-                release.SetResult();
-                await warmup.WaitAsync(TimeSpan.FromSeconds(5));
-
-                Assert(rig.Handler.Sends == 1, $"sends {rig.Handler.Sends}");
-                Assert(rig.ClientsBuilt == 1, $"a DNS failure after Dispose built {rig.ClientsBuilt} clients, want no resurrection");
             });
 
             RunAsync("RustRetry caps transport failures at 4 and resolves the client per attempt", async () =>
@@ -9027,7 +8879,6 @@ internal static class Program
 
                 foreach (var provider in new[]
                          {
-                             StreamingTranscriptionProvider.HyperWhisperCloud,
                              StreamingTranscriptionProvider.ElevenLabs,
                              StreamingTranscriptionProvider.OpenAI,
                              StreamingTranscriptionProvider.Xai,
@@ -9294,69 +9145,6 @@ internal static class Program
                     is StreamingProviderEvent.Error { Message: "invalid setup" }, "error frame must surface its message");
             });
 
-            Run("the HyperWhisper Cloud route is derived from the selected cloud tier", () =>
-            {
-                // /ws/streaming-{sttProvider}, derived by the shared core from the
-                // catalog entry the tier names. deepgramNova3 must stay
-                // byte-identical to the literal it replaced, because every installed
-                // client sends no tier at all; an unknown tier must fall back rather
-                // than derive a path the backend will 404.
-                static Uri Route(string? tier, string language, IReadOnlyList<string>? vocabulary = null)
-                {
-                    var config = new StreamingSessionConfig(
-                        "lic", null, language, vocabulary, null, null, false, false, tier);
-                    using var strategy = LiveStrategy(
-                        StreamingTranscriptionProvider.HyperWhisperCloud, config);
-                    var uri = strategy.BuildWebSocketUri(config);
-                    Assert(uri is not null, $"tier '{tier}' must build a connect URL");
-                    return uri!;
-                }
-
-                Assert(Route("deepgramNova3", "en").AbsolutePath == "/ws/streaming-deepgram",
-                    "deepgramNova3 must derive /ws/streaming-deepgram");
-                Assert(Route("geminiTranscribe", "en").AbsolutePath == "/ws/streaming-gemini-transcribe",
-                    "geminiTranscribe must derive /ws/streaming-gemini-transcribe");
-                foreach (var bogus in new string?[] { null, "", "   ", "notATier", "groqWhisper" })
-                {
-                    Assert(Route(bogus, "en").AbsolutePath == "/ws/streaming-deepgram",
-                        $"tier '{bogus}' must fall back to Deepgram");
-                }
-
-                // The auto-detect vocabulary gate is Deepgram's constraint, so it must
-                // NOT be applied to the Gemini tier.
-                Assert(!Route("deepgramNova3", "auto", ["Kalamazoo"]).Query.Contains("vocabulary="),
-                    "Deepgram must withhold vocabulary in auto-detect");
-                Assert(Route("geminiTranscribe", "auto", ["Kalamazoo"]).Query.Contains("vocabulary=Kalamazoo"),
-                    "Gemini must send vocabulary in auto-detect");
-            });
-
-            Run("the live cloud tier picker offers exactly the vendors we serve a WS route for", () =>
-            {
-                // The STT catalog has no `enabled` gate, and the client derives its
-                // route with no allow-list of its own, so this list IS the guard
-                // against shipping a picker row that 404s at dictation time.
-                var ids = CloudSttCatalog.Shared.StreamingCloudTierEntries().Select(e => e.Id).ToArray();
-                Assert(ids.SequenceEqual(new[] { "deepgramNova3", "geminiTranscribe" }),
-                    $"unexpected live tier set: {string.Join(", ", ids)}");
-
-                // The settings ComboBox binds SelectedValue to the stored id with
-                // SelectedValuePath="Id", and WPF matches that case-SENSITIVELY. A
-                // hand-edited settings.json or a retired tier therefore has to come
-                // back in the catalog's own casing, or the row renders blank while
-                // the session quietly runs on the fallback.
-                Assert(SettingsService.NormalizeStreamingCloudTier(" geminiTranscribe ") == "geminiTranscribe",
-                    "a padded id must normalize");
-                Assert(SettingsService.NormalizeStreamingCloudTier("GEMINITRANSCRIBE") == "geminiTranscribe",
-                    "a case variant must come back in the catalog's casing, not the caller's");
-                foreach (var bogus in new string?[] { null, "", "   ", "notATier", "googleChirp3" })
-                {
-                    Assert(SettingsService.NormalizeStreamingCloudTier(bogus) == "deepgramNova3",
-                        $"tier '{bogus}' must clamp to the default");
-                }
-                Assert(ids.Contains(LiveProtocolStreamingStrategy.DefaultCloudTier),
-                    "the fallback tier must itself be offered, or the picker is blank by default");
-            });
-
             Run("StreamingSettingsPage language picker offers the selected provider's catalog set (#832)", () =>
             {
                 // macOS keyed every cloud streaming provider on Deepgram Nova-3's list and
@@ -9379,21 +9167,12 @@ internal static class Program
                 Assert(deepgram.Length < HyperWhisper.Models.LanguageInfo.AllLanguages.Length,
                     "Deepgram streaming must not bind the unfiltered list");
 
-                // The provider -> entry mapping, one row per cloud provider.
+                // The provider -> entry mapping, one row per BYOK cloud streaming provider.
                 Assert(StreamingSettingsPage.LanguageCatalogEntryId(StreamingTranscriptionProvider.Deepgram, null) == "deepgramNova3", "deepgram entry");
                 Assert(StreamingSettingsPage.LanguageCatalogEntryId(StreamingTranscriptionProvider.ElevenLabs, null) == "elevenLabsScribeV2", "elevenLabs entry");
                 Assert(StreamingSettingsPage.LanguageCatalogEntryId(StreamingTranscriptionProvider.OpenAI, null) == "openaiWhisper", "openAI entry");
                 Assert(StreamingSettingsPage.LanguageCatalogEntryId(StreamingTranscriptionProvider.GeminiTranscribe, null) == "geminiTranscribe", "gemini entry");
                 Assert(StreamingSettingsPage.LanguageCatalogEntryId(StreamingTranscriptionProvider.Xai, null) == "grokStt", "xai entry");
-
-                // HyperWhisper Cloud follows the selected live tier, clamped like the route.
-                foreach (var entry in HyperWhisper.Services.AppClassification.CloudSttCatalog.Shared.StreamingCloudTierEntries())
-                {
-                    Assert(StreamingSettingsPage.LanguageCatalogEntryId(StreamingTranscriptionProvider.HyperWhisperCloud, entry.Id) == entry.Id,
-                        $"live tier {entry.Id} must reach the picker unchanged");
-                }
-                Assert(StreamingSettingsPage.LanguageCatalogEntryId(StreamingTranscriptionProvider.HyperWhisperCloud, "notATier") == "deepgramNova3",
-                    "an unknown live tier must clamp to the default tier");
 
                 // An unverified set keeps the full list.
                 Assert(Codes(StreamingTranscriptionProvider.GeminiTranscribe).Length == HyperWhisper.Models.LanguageInfo.AllLanguages.Length,
@@ -9509,7 +9288,6 @@ internal static class Program
             {
                 var expected = new (StreamingTranscriptionProvider Provider, string Label, int SampleRate, bool Vocabulary)[]
                 {
-                    (StreamingTranscriptionProvider.HyperWhisperCloud, "HyperWhisper Cloud (Streaming)", 16000, true),
                     (StreamingTranscriptionProvider.Deepgram, "Deepgram (Streaming)", 16000, true),
                     (StreamingTranscriptionProvider.ElevenLabs, "ElevenLabs (Streaming)", 16000, false),
                     (StreamingTranscriptionProvider.OpenAI, "OpenAI (Streaming)", 24000, false),
@@ -9583,16 +9361,6 @@ internal static class Program
                         $"expected no language= under auto, got '{auto}'");
                 }
 
-                using (var cloud = LiveStrategy(StreamingTranscriptionProvider.HyperWhisperCloud))
-                {
-                    var url = cloud.BuildWebSocketUri(LiveConfig())!.AbsoluteUri;
-                    Assert(url.StartsWith(
-                            "wss://transcribe-prod-v2.hyperwhisper.com/ws/streaming-deepgram?license_key=smoke-license-key",
-                            StringComparison.Ordinal),
-                        $"expected the production relay with the license key first, got '{url}'");
-                    Assert(url.Contains("language=en", StringComparison.Ordinal), $"expected language=en, got '{url}'");
-                }
-
                 using (var elevenLabs = LiveStrategy(StreamingTranscriptionProvider.ElevenLabs))
                 {
                     var url = elevenLabs.BuildWebSocketUri(LiveConfig())!.AbsoluteUri;
@@ -9637,7 +9405,7 @@ internal static class Program
                     Assert(url.Contains("keyterm=Deepgram", StringComparison.Ordinal), $"got '{url}'");
                 }
 
-                // Four of the five refuse to build a URL with no credential, and the
+                // Every streaming provider refuses to build a URL with no credential, and the
                 // client reads null as "cannot start" without opening a socket.
                 foreach (var provider in new[]
                          {
@@ -9645,7 +9413,6 @@ internal static class Program
                              StreamingTranscriptionProvider.ElevenLabs,
                              StreamingTranscriptionProvider.OpenAI,
                              StreamingTranscriptionProvider.Xai,
-                             StreamingTranscriptionProvider.HyperWhisperCloud,
                          })
                 {
                     var bare = new StreamingSessionConfig(null, null, "en", null, null, null, false, false);
@@ -9665,7 +9432,6 @@ internal static class Program
                          {
                              StreamingTranscriptionProvider.Deepgram,
                              StreamingTranscriptionProvider.Xai,
-                             StreamingTranscriptionProvider.HyperWhisperCloud,
                          })
                 {
                     using var strategy = LiveStrategy(provider);
@@ -9719,35 +9485,17 @@ internal static class Program
                     Assert(steps[3].Action == StreamingStopAction.Close, "expected a trailing close");
                 }
 
-                foreach (var (provider, frame) in new[]
-                         {
-                             (StreamingTranscriptionProvider.HyperWhisperCloud, "{\"type\":\"stop\"}"),
-                             (StreamingTranscriptionProvider.Xai, "{\"type\":\"audio.done\"}"),
-                         })
+                using (var xai = LiveStrategy(StreamingTranscriptionProvider.Xai))
                 {
-                    using var strategy = LiveStrategy(provider);
-                    if (provider == StreamingTranscriptionProvider.HyperWhisperCloud)
-                    {
-                        // No `ready` frame yet: the relay never started a session, so
-                        // nothing will send session_complete and the stop must not
-                        // wait 10s for it (issue #834).
-                        var unstarted = strategy.GetStopSequence();
-                        Assert(unstarted.Count == 2
-                            && unstarted[0].Action == StreamingStopAction.SendMessage
-                            && unstarted[1].Action == StreamingStopAction.Close,
-                            $"{provider}: expected stop then close before ready, got {unstarted.Count} steps");
-                        strategy.ParseMessage("{\"type\":\"ready\",\"sessionId\":\"s1\"}");
-                    }
-
-                    var steps = strategy.GetStopSequence();
-                    Assert(steps.Count == 3, $"{provider}: expected 3 stop steps, got {steps.Count}");
+                    var steps = xai.GetStopSequence();
+                    Assert(steps.Count == 3, $"Xai: expected 3 stop steps, got {steps.Count}");
                     Assert(steps[0].Action == StreamingStopAction.SendMessage
-                        && System.Text.Encoding.UTF8.GetString(steps[0].Payload!) == frame,
-                        $"{provider}: expected '{frame}' first");
+                        && System.Text.Encoding.UTF8.GetString(steps[0].Payload!) == "{\"type\":\"audio.done\"}",
+                        "Xai: expected '{\"type\":\"audio.done\"}' first");
                     Assert(steps[1].Action == StreamingStopAction.WaitForSessionComplete
                         && steps[1].WaitAfter == TimeSpan.FromSeconds(10),
-                        $"{provider}: expected a 10s wait on the completion EVENT, got {steps[1].Action}/{steps[1].WaitAfter}");
-                    Assert(steps[2].Action == StreamingStopAction.Close, $"{provider}: expected a trailing close");
+                        $"Xai: expected a 10s wait on the completion EVENT, got {steps[1].Action}/{steps[1].WaitAfter}");
+                    Assert(steps[2].Action == StreamingStopAction.Close, "Xai: expected a trailing close");
                 }
 
                 using (var elevenLabs = LiveStrategy(StreamingTranscriptionProvider.ElevenLabs))
@@ -9762,35 +9510,6 @@ internal static class Program
 
             Run("Every streaming provider's parser reaches this head's event type", () =>
             {
-                using (var cloud = LiveStrategy(StreamingTranscriptionProvider.HyperWhisperCloud))
-                {
-                    Assert(cloud.ParseMessage("{\"type\":\"ready\",\"sessionId\":\"s-1\"}")
-                            is StreamingProviderEvent.SessionStarted { SessionId: "s-1" },
-                        "expected ready to carry the session id");
-                    Assert(cloud.ParseMessage("{\"type\":\"transcript\",\"text\":\"hi\",\"is_final\":true}")
-                            is StreamingProviderEvent.FinalTranscript { Text: "hi" },
-                        "expected a final transcript");
-                    Assert(cloud.ParseMessage("{\"type\":\"transcript\",\"text\":\"hi\"}")
-                            is StreamingProviderEvent.PartialTranscript { Text: "hi" },
-                        "expected a partial transcript");
-                    // BILLING DATA. The stop path waits on this frame rather than
-                    // closing on a timer precisely so it is not lost.
-                    Assert(cloud.ParseMessage(
-                            "{\"type\":\"session_complete\",\"duration_seconds\":12.5,\"credits_used\":3.25}")
-                            is StreamingProviderEvent.SessionComplete { DurationSeconds: 12.5, CreditsUsed: 3.25 },
-                        "expected session_complete to carry the duration and the credits");
-                    Assert(cloud.ParseMessage("{\"type\":\"warning\",\"message\":\"almost out\"}")
-                            is StreamingProviderEvent.Warning { Message: "almost out" },
-                        "expected a warning to stay a warning and never end the session");
-                    Assert(cloud.ParseMessage("{\"type\":\"error\",\"message\":\"Credit balance exhausted\"}")
-                            is StreamingProviderEvent.Error { Message: "Credit balance exhausted" },
-                        "expected the provider's own wording to survive, so the classifier can read it");
-                    // A frame that is not JSON must not end a recording in progress.
-                    Assert(cloud.ParseMessage("not json at all") is null, "expected junk to be ignored");
-                    Assert(cloud.ParseMessage("{\"type\":\"something_new\"}") is null,
-                        "expected an unknown frame type to be ignored");
-                }
-
                 using (var xai = LiveStrategy(StreamingTranscriptionProvider.Xai))
                 {
                     // transcript.done is BOTH the last final and the end of the
@@ -9859,7 +9578,6 @@ internal static class Program
                 // and AddSubProtocol validates its argument.
                 foreach (var provider in new[]
                          {
-                             StreamingTranscriptionProvider.HyperWhisperCloud,
                              StreamingTranscriptionProvider.Deepgram,
                              StreamingTranscriptionProvider.ElevenLabs,
                              StreamingTranscriptionProvider.OpenAI,
@@ -10427,71 +10145,8 @@ internal static class Program
                     $"expected Metadata, got {evt?.GetType().Name ?? "null"}");
             });
 
-            Run("Every cloudTierEligible catalog id has a CloudAccuracyTier case", () =>
+            Run("Meta Muse direct provider keeps BYOK metadata", () =>
             {
-                // shared-app-classification/AGENTS.md documents catalog edits as
-                // data-only, but the Provider dropdown is built straight from the
-                // catalog while persistence funnels through the CloudAccuracyTier
-                // enum, whose FromString fallback is DeepgramNova3. A new
-                // cloudTierEligible entry with no enum case would therefore be a
-                // selectable row that transcribes and bills as Deepgram. Fail here
-                // instead, on the PR that adds the entry.
-                var entries = HyperWhisper.Services.AppClassification.CloudSttCatalog.Shared
-                    .CloudTierEligibleProviders();
-                Assert(entries.Count > 0, "cloud-stt-catalog.json exposed no cloudTierEligible providers");
-
-                foreach (var entry in entries)
-                {
-                    var roundTripped = CloudAccuracyTierExtensions.FromString(entry.Id).ToStorageValue();
-                    Assert(
-                        string.Equals(roundTripped, entry.Id, StringComparison.OrdinalIgnoreCase),
-                        $"catalog id '{entry.Id}' has no CloudAccuracyTier case — FromString falls back to "
-                            + $"'{roundTripped}', so that Provider row would silently route and bill as Deepgram. "
-                            + "Add the case to Models/CloudAccuracyTier.cs (and the macOS CloudAccuracyTier enum) "
-                            + "in the same change as the catalog entry.");
-                }
-            });
-
-            Run("A persisted googleChirp3 tier migrates onto geminiTranscribe", () =>
-            {
-                // Catalog v8 retired googleChirp3 in favour of geminiTranscribe.
-                // FromString's fallback is DeepgramNova3, so every legacy spelling
-                // that misses would silently move a Google user to Deepgram —
-                // wrong X-STT-Provider, wrong credits, wrong vendor row.
-                // The stored data is converged by the EF migration
-                // 20260827090000_MigrateGoogleChirp3TierToGeminiTranscribe; this
-                // guards the read path that has to hold until it runs (and for
-                // any value arriving over the Local API or a backup restore).
-                foreach (var legacy in new[]
-                {
-                    "googleChirp3", "googlechirp3", "GOOGLECHIRP3",
-                    "googlespeech", "googleSpeech", "google-chirp", "googlechirp",
-                    "chirp", "chirp_3",
-                })
-                {
-                    var resolved = CloudAccuracyTierExtensions.FromString(legacy).ToStorageValue();
-                    Assert(
-                        resolved == "geminiTranscribe",
-                        $"legacy tier '{legacy}' resolved to '{resolved}', not 'geminiTranscribe' — "
-                            + "a Chirp 3 user would be silently moved to another vendor.");
-                }
-
-                // And the retired id must not come back as an enum member: the
-                // canonical loop in FromString runs before the catalog aliases,
-                // so a GoogleChirp3 member would win and strand the user on a
-                // tier with no catalog entry.
-                Assert(
-                    !Enum.GetNames<CloudAccuracyTier>().Contains("GoogleChirp3"),
-                    "CloudAccuracyTier.GoogleChirp3 is back; it would shadow the catalog migrateFrom alias.");
-            });
-
-            Run("Meta Muse direct provider stays separate from the cloud tier", () =>
-            {
-                var tier = CloudAccuracyTierExtensions.FromString("  METAMUSE  ");
-                Assert(tier == CloudAccuracyTier.MetaMuse, "Meta Muse persistence did not round-trip");
-                Assert(tier.ToStorageValue() == "metaMuse" && tier.ToSttProvider() == "meta",
-                    "Meta Muse tier did not resolve its canonical id and provider");
-
                 Assert((int)CloudTranscriptionProvider.Meta == 15,
                     "Meta changed its append-only persisted enum value");
                 Assert(CloudTranscriptionProviderExtensions.FromIdentifier("  META  ".Trim())
@@ -10525,17 +10180,6 @@ internal static class Program
                 Assert(!MainViewModel.ExceedsMuseSourceLimit(64L * 1024 * 1024)
                         && MainViewModel.ExceedsMuseSourceLimit(64L * 1024 * 1024 + 1),
                     "Windows Meta normalization source bound drifted");
-
-                var cloud = new Mode
-                {
-                    ProviderType = "cloud",
-                    Model = "cloud",
-                    CloudProvider = "hyperwhisper",
-                    CloudAccuracyTier = "metaMuse",
-                    CloudTranscriptionModel = "muse-voice-transcribe-1.0",
-                };
-                Assert(cloud.CloudProvider == "hyperwhisper" && cloud.CloudAccuracyTier == "metaMuse",
-                    "the existing HyperWhisper Cloud Meta route changed");
 
                 var caps = HyperWhisper.Services.SharedModelsCatalog.VoiceCapabilities(
                     "meta", "muse-voice-transcribe-1.0");
@@ -11026,93 +10670,6 @@ internal static class Program
                 Assert(!mode.EnableScreenOCR, "expected EnableScreenOCR=false");
             });
 
-            // HYPERWHISPER-SP / HYPERWHISPER-FM parity: LicenseNetworkService.LicenseVerdictReason
-            // decides whether a non-200 license-validate reply is an ordinary verdict (log only) or
-            // a genuine backend incident (capture to Sentry). The backend answers 400 with the SAME
-            // {"valid":false,"error":"..."} shape for a lapsed license, a nonexistent key, AND a real
-            // infrastructure fault, so the shape alone cannot decide this - only the server's own
-            // `reason` field can. Mirrors macOS LicenseNetworkVerdictReportingTests.swift exactly.
-            Run("LicenseVerdictReason recognizes reason=not_entitled at 400 as an ordinary verdict", () =>
-            {
-                var body = System.Text.Encoding.UTF8.GetBytes(
-                    """{"valid":false,"error":"License is revoked","reason":"not_entitled"}""");
-                var reason = LicenseNetworkService.LicenseVerdictReason(400, body);
-                Assert(reason == LicenseNetworkService.NotEntitledReason,
-                    $"expected '{LicenseNetworkService.NotEntitledReason}', got '{reason ?? "<null>"}'");
-            });
-
-            Run("LicenseVerdictReason: reason alone (no other fields) is enough at 400", () =>
-            {
-                var body = System.Text.Encoding.UTF8.GetBytes("""{"reason":"not_entitled"}""");
-                var reason = LicenseNetworkService.LicenseVerdictReason(400, body);
-                Assert(reason == LicenseNetworkService.NotEntitledReason, $"got '{reason ?? "<null>"}'");
-            });
-
-            Run("LicenseVerdictReason: lookup_failed and bad_request are NOT an ordinary verdict", () =>
-            {
-                var lookupFailed = System.Text.Encoding.UTF8.GetBytes(
-                    """{"valid":false,"error":"Failed to validate with Polar","reason":"lookup_failed"}""");
-                var badRequest = System.Text.Encoding.UTF8.GetBytes(
-                    """{"valid":false,"error":"License key is required","reason":"bad_request"}""");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, lookupFailed) == "lookup_failed",
-                    "expected 'lookup_failed' returned verbatim");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, badRequest) == "bad_request",
-                    "expected 'bad_request' returned verbatim");
-            });
-
-            Run("LicenseVerdictReason: an unrecognised reason is returned verbatim but is not a verdict", () =>
-            {
-                var body = System.Text.Encoding.UTF8.GetBytes(
-                    """{"valid":false,"error":"...","reason":"quota_exceeded"}""");
-                var reason = LicenseNetworkService.LicenseVerdictReason(400, body);
-                Assert(reason == "quota_exceeded", $"got '{reason ?? "<null>"}'");
-                Assert(reason != LicenseNetworkService.NotEntitledReason,
-                    "an unrecognised reason must never equal the not-entitled constant");
-            });
-
-            Run("LicenseVerdictReason: a body with no reason field is not a verdict (must still be captured)", () =>
-            {
-                var noReason = System.Text.Encoding.UTF8.GetBytes(
-                    """{"valid":false,"error":"License is revoked"}""");
-                var validTrue = System.Text.Encoding.UTF8.GetBytes("""{"valid":true}""");
-                var emptyObject = System.Text.Encoding.UTF8.GetBytes("{}");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, noReason) == null,
-                    "expected null for a 400 body with no reason field");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, validTrue) == null,
-                    "expected null for valid:true with no reason field");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, emptyObject) == null,
-                    "expected null for an empty JSON object");
-            });
-
-            Run("LicenseVerdictReason: an empty body or an HTML captive-portal page is not a verdict", () =>
-            {
-                var html = System.Text.Encoding.UTF8.GetBytes(
-                    "<!DOCTYPE html><html><body><h1>Sign in to continue</h1></body></html>");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, System.Array.Empty<byte>()) == null,
-                    "expected null for an empty body");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, html) == null,
-                    "expected null for an undecodable HTML body");
-            });
-
-            Run("LicenseVerdictReason: non-object JSON and a non-string reason are not a verdict", () =>
-            {
-                var array = System.Text.Encoding.UTF8.GetBytes("[]");
-                var nonStringReason = System.Text.Encoding.UTF8.GetBytes("""{"valid":false,"reason":7}""");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, array) == null, "expected null for a JSON array");
-                Assert(LicenseNetworkService.LicenseVerdictReason(400, nonStringReason) == null,
-                    "expected null for a non-string reason value");
-            });
-
-            Run("LicenseVerdictReason: only status 400 is eligible - same body at 500 is not a verdict", () =>
-            {
-                var verdictBody = System.Text.Encoding.UTF8.GetBytes(
-                    """{"valid":false,"error":"License is revoked","reason":"not_entitled"}""");
-                Assert(LicenseNetworkService.LicenseVerdictReason(500, verdictBody) == null,
-                    "expected null - a 5xx never reaches this predicate as a terminal result, and even if it did, only 400 is the documented verdict status");
-                Assert(LicenseNetworkService.LicenseVerdictReason(401, verdictBody) == null, "expected null at 401");
-                Assert(LicenseNetworkService.LicenseVerdictReason(200, verdictBody) == null, "expected null at 200");
-            });
-
             RunAsync("a mid-session generationComplete keeps BOTH utterances and still sends audio_stream_end", async () =>
             {
                 // Google emits serverContent.generationComplete at EVERY turn
@@ -11207,13 +10764,6 @@ internal static class Program
                         $"{key}/{model.Id} shows '{model.DisplayName}', the catalog says '{name}'");
                 }
 
-                // The one row that is NOT a model keeps its literal, through the
-                // override property, so GetById(HyperWhisperCloud, "default")
-                // stays stable for a persisted mode.
-                var sentinel = CloudTranscriptionModels.GetById(
-                    "default", CloudTranscriptionProvider.HyperWhisperCloud);
-                Assert(sentinel?.DisplayName == "Default",
-                    $"the HyperWhisper Cloud sentinel is named '{sentinel?.DisplayName}'");
                 Assert(!CloudTranscriptionModels.All.Any(m => m.DisplayNameOverride != null),
                     "a real model set DisplayNameOverride - names belong in the catalog");
             });
@@ -11259,237 +10809,8 @@ internal static class Program
                     "an empty model id must not warn");
                 Assert(!ModeEditorWindow.ByokVocabularyUnsupported(CloudTranscriptionProvider.Deepgram, null),
                     "a null model id must not warn");
-                Assert(!ModeEditorWindow.ByokVocabularyUnsupported(CloudTranscriptionProvider.HyperWhisperCloud, "scribe_v1"),
-                    "HyperWhisper Cloud has its own branch and is never a BYOK warning");
                 Assert(!ModeEditorWindow.ByokVocabularyUnsupported(CloudTranscriptionProvider.None, "scribe_v1"),
                     "an unknown provider tag must not warn");
-            });
-
-            Run("AssemblyAI Dictation stays selected on the cloud send path", () =>
-            {
-                Assert(HyperWhisperCloudService.ResolveDictationModelId("assemblyAI", "dictation") == "dictation", "Dictation was replaced by the provider default");
-                Assert(HyperWhisperCloudService.ResolveDictationModelId("assemblyAI", null) == "universal-3-5-pro", "AssemblyAI default changed");
-                Assert(CloudTranscriptionModels.AssemblyAI.Any(model => model.Id == "dictation"), "BYOK Dictation is missing");
-                Assert(!CloudTranscriptionModels.AssemblyAI.Any(model => model.Id == "dictation-medical"), "Dictation gained Medical Mode");
-            });
-
-            Run("the HyperWhisper Cloud dictation model picker never offers a streaming-only model", () =>
-            {
-                // gemini-3.5-transcribe-live is WebSocket-only - it has no
-                // pre-recorded endpoint, so every dictation on it 400s. The catalog
-                // already carries `"streaming": true` on that model; the Mode
-                // editor's Model dropdown flat-mapped every model and ignored it.
-                var catalog = CloudSttCatalog.Shared;
-
-                var live = catalog.GetModel("geminiTranscribe", "gemini-3.5-transcribe-live");
-                Assert(live != null, "the catalog no longer carries gemini-3.5-transcribe-live");
-
-                var offered = catalog.ModelsForVendorKey("google").Select(entry => entry.Model.Id).ToArray();
-                Assert(!offered.Contains("gemini-3.5-transcribe-live"),
-                    $"a live-only model reached the dictation picker: {string.Join(", ", offered)}");
-                Assert(offered.Contains("gemini-3.5-transcribe"),
-                    $"the pre-recorded Google model must still be offered, got: {string.Join(", ", offered)}");
-
-                // REGRESSION GUARD (mirrors macOS's deepgramNova3StaysSelectableForDictation).
-                // The per-model `streaming` flag is NOT the filter, however much it
-                // reads like one: it means "HW Cloud routes this model live", and
-                // Deepgram carries it on nova-3-general and nova-3-medical, which
-                // are the DEFAULT pre-recorded dictation models. Filtering on it
-                // deletes the default dictation model from the picker - a worse bug
-                // than the one this test exists for. Both facts are pinned here so
-                // the flag cannot quietly become the filter again.
-                Assert(catalog.GetModel("deepgramNova3", "nova-3-general")!.Streaming,
-                    "nova-3-general lost its `streaming` flag - this guard no longer guards anything");
-                var deepgram = catalog.ModelsForVendorKey("deepgram").Select(entry => entry.Model.Id).ToArray();
-                Assert(deepgram.Contains("nova-3-general") && deepgram.Contains("nova-3-medical"),
-                    $"Deepgram's pre-recorded models must stay selectable for dictation, got: {string.Join(", ", deepgram)}");
-                Assert(deepgram.Length == catalog.ModelsForId("deepgramNova3").Count,
-                    "the dictation picker dropped a Deepgram model - only live-only ids may be filtered");
-
-                Assert(CloudSttCatalog.IsLiveOnlyModel("  GEMINI-3.5-TRANSCRIBE-LIVE  "),
-                    "live-only matching must be trimmed and case-insensitive, like every other catalog model lookup");
-                foreach (var notLiveOnly in new string?[] { null, "", "   ", "gemini-3.5-transcribe", "nova-3-general" })
-                {
-                    Assert(!CloudSttCatalog.IsLiveOnlyModel(notLiveOnly),
-                        $"'{notLiveOnly}' must not be treated as live-only");
-                }
-
-                // The SEND path has to reject it too: the picker no longer offers
-                // one, but a backup restore or a Local API write can still store it,
-                // and it IS a member of the tier so plain membership accepts it.
-                //
-                // Assert on HyperWhisperCloudService.ResolveDictationModelId - the
-                // method that actually produces the X-STT-Model header. The earlier
-                // version of this check called CloudSttCatalog.DictationModelsForId,
-                // which has NO production caller, so it passed whether or not the
-                // send path guarded anything.
-                var geminiDefault = catalog.DefaultModelIdForId("geminiTranscribe");
-                Assert(geminiDefault == "gemini-3.5-transcribe",
-                    $"the geminiTranscribe tier default moved, this check needs updating - got '{geminiDefault}'");
-                Assert(HyperWhisperCloudService.ResolveDictationModelId("geminiTranscribe", "gemini-3.5-transcribe-live") == geminiDefault,
-                    "the send path still sends the live-only id as X-STT-Model - every dictation would 400");
-                Assert(HyperWhisperCloudService.ResolveDictationModelId("geminiTranscribe", "  GEMINI-3.5-TRANSCRIBE-LIVE  ") == geminiDefault,
-                    "the send path let a padded/upper-cased live-only id through");
-
-                // ...and it must NOT punt a legitimate model back to the default.
-                Assert(HyperWhisperCloudService.ResolveDictationModelId("geminiTranscribe", "gemini-3.5-transcribe") == "gemini-3.5-transcribe",
-                    "the send path replaced a valid Gemini dictation model with the tier default");
-                foreach (var deepgramModel in catalog.ModelsForId("deepgramNova3"))
-                {
-                    Assert(HyperWhisperCloudService.ResolveDictationModelId("deepgramNova3", deepgramModel.Id) == deepgramModel.Id,
-                        $"the send path dropped Deepgram's '{deepgramModel.Id}' - only live-only ids may be filtered");
-                }
-            });
-
-            Run("the standalone Azure MAI service sends the mode's model as X-STT-Model", () =>
-            {
-                // AzureMAITranscriptionService routes to the same HW Cloud
-                // /transcribe proxy as the HyperWhisper Cloud tier, where the
-                // model travels ONLY as X-STT-Model (hw-net builds that header
-                // from `routed_model`, never from `model`). Before this was
-                // wired the service sent nothing, so a mode pinned to
-                // mai-transcribe-1.5 transcribed and billed as mai-transcribe-2.
-                //
-                // The model is CONSTRUCTOR state, not a settable property: the
-                // service is built once per request precisely so two overlapping
-                // requests cannot overwrite each other's model.
-                Assert(new HyperWhisper.Services.AzureMAITranscriptionService("mai-transcribe-1.5")
-                        .ResolveRoutedModel() == "mai-transcribe-1.5",
-                    "a mode pinned to mai-transcribe-1.5 did not resolve that model for X-STT-Model");
-
-                Assert(new HyperWhisper.Services.AzureMAITranscriptionService("mai-transcribe-2")
-                        .ResolveRoutedModel() == "mai-transcribe-2",
-                    "a mode pinned to mai-transcribe-2 did not resolve that model for X-STT-Model");
-
-                // A stale id (the field is shared with the BYOK path) degrades to
-                // the catalog default rather than earning a backend 400.
-                Assert(new HyperWhisper.Services.AzureMAITranscriptionService("whisper-1")
-                        .ResolveRoutedModel() == "mai-transcribe-2",
-                    "a stale Azure model id did not fall back to the catalog default");
-
-                Assert(new HyperWhisper.Services.AzureMAITranscriptionService(null)
-                        .ResolveRoutedModel() == "mai-transcribe-2",
-                    "an unset Azure model did not fall back to the catalog default");
-            });
-
-            // #1421: HyperWhisperRoutedTranscriptionClient (Azure MAI, Google
-            // Chirp) is driven end to end with a scripted HttpClient and an
-            // explicit licensed identity, so the request it builds and the
-            // errors it maps are pinned, not just ResolveRoutedModel above.
-            RunAsync("routed: azure-mai sends X-STT-Provider azure-mai and X-STT-Model mai-transcribe-1.5", async () =>
-            {
-                var (handler, error) = await RunRoutedAsync("azure-mai", "mai-transcribe-1.5",
-                    HttpStatusCode.OK, "{\"text\":\"hello\"}");
-                Assert(error == null, $"a 200 threw: {error}");
-                Assert(handler.Sends == 1, $"expected 1 request, got {handler.Sends}");
-                Assert(handler.Header("X-STT-Provider") == "azure-mai",
-                    $"X-STT-Provider was '{handler.Header("X-STT-Provider")}'");
-                Assert(handler.Header("X-STT-Model") == "mai-transcribe-1.5",
-                    $"X-STT-Model was '{handler.Header("X-STT-Model")}': the user's model (and price) is lost on the wire");
-            });
-
-            RunAsync("routed: google-chirp sends X-STT-Provider google-chirp and no X-STT-Model", async () =>
-            {
-                var (handler, error) = await RunRoutedAsync("google-chirp", null,
-                    HttpStatusCode.OK, "{\"text\":\"hello\"}");
-                Assert(error == null, $"a 200 threw: {error}");
-                Assert(handler.Header("X-STT-Provider") == "google-chirp",
-                    $"X-STT-Provider was '{handler.Header("X-STT-Provider")}'");
-                Assert(handler.Header("X-STT-Model") == null,
-                    $"Google Chirp sent X-STT-Model '{handler.Header("X-STT-Model")}' with no model chosen");
-            });
-
-            RunAsync("routed: the licence key goes in license_key and no device_id is sent", async () =>
-            {
-                var (handler, _) = await RunRoutedAsync("azure-mai", "mai-transcribe-2",
-                    HttpStatusCode.OK, "{\"text\":\"hello\"}");
-                var query = System.Web.HttpUtility.ParseQueryString(handler.LastRequestUri?.Query ?? string.Empty);
-                Assert(query["license_key"] == RoutedTestKey,
-                    $"license_key was '{query["license_key"]}'");
-                Assert(query["device_id"] == null, $"device_id was sent: '{query["device_id"]}'");
-            });
-
-            RunAsync("routed: a 402 with credits_remaining/credits_required maps to InsufficientCredits with both numbers", async () =>
-            {
-                var (_, error) = await RunRoutedAsync("azure-mai", "mai-transcribe-2",
-                    HttpStatusCode.PaymentRequired,
-                    "{\"error\":\"insufficient_credits\",\"message\":\"Not enough credits\",\"credits_remaining\":3,\"credits_required\":12}");
-                Assert(error is TranscriptionException, $"expected a TranscriptionException, got {error?.GetType().Name ?? "none"}");
-                var ex = (TranscriptionException)error!;
-                Assert(ex.IsInsufficientCredits && ex.Code == TranscriptionErrorCode.QuotaExceeded,
-                    $"a 402 mapped to {ex.Code} (insufficient={ex.IsInsufficientCredits}), not the buy-credits path");
-                Assert(ex.HttpStatusCode == 402, $"status was {ex.HttpStatusCode}");
-                Assert(ex.Message.Contains("remaining: 3", StringComparison.Ordinal)
-                        && ex.Message.Contains("required: 12", StringComparison.Ordinal),
-                    $"the credit numbers were lost: '{ex.Message}'");
-            });
-
-            RunAsync("routed: a 413 with max_size_mb/actual_size_mb carries the size context", async () =>
-            {
-                var (_, error) = await RunRoutedAsync("google-chirp", null,
-                    HttpStatusCode.RequestEntityTooLarge,
-                    "{\"error\":\"file_too_large\",\"message\":\"File too large\",\"max_size_mb\":25,\"actual_size_mb\":31.5}");
-                Assert(error is TranscriptionException, $"expected a TranscriptionException, got {error?.GetType().Name ?? "none"}");
-                var ex = (TranscriptionException)error!;
-                Assert(ex.Code == TranscriptionErrorCode.FileTooLarge, $"a 413 mapped to {ex.Code}");
-                Assert(ex.Message.Contains("31.5 MB", StringComparison.Ordinal)
-                        && ex.Message.Contains("25 MB", StringComparison.Ordinal),
-                    $"the size context was lost: '{ex.Message}'");
-            });
-
-            RunAsync("routed: an unlicensed identity throws CloudAccountRequired and sends 0 requests", async () =>
-            {
-                var (handler, error) = await RunRoutedAsync("azure-mai", "mai-transcribe-2",
-                    HttpStatusCode.OK, "{\"text\":\"hello\"}", licensed: false);
-                Assert(error is TranscriptionException { Code: TranscriptionErrorCode.CloudAccountRequired },
-                    $"expected CloudAccountRequired, got {(error as TranscriptionException)?.Code.ToString() ?? error?.GetType().Name ?? "no error"}");
-                Assert(handler.Sends == 0, $"an unlicensed call sent {handler.Sends} request(s)");
-            });
-
-            Run("two overlapping Azure MAI requests keep their own model", () =>
-            {
-                // REGRESSION GUARD for a billing bug. The first cut of the fix
-                // above stored the model on a settable property of the factory's
-                // CACHED service instance. TranscriptionRuntime.Orchestrator is a
-                // static singleton holding one TranscriptionProviderFactory and
-                // nothing locks, so a hotkey dictation and a Local API
-                // POST /transcribe that overlap overwrote each other's model
-                // between "configure" and "send" — one request then transcribed
-                // and billed as the other's model (v2 at 1.5's 6.0 credits/min is
-                // a 3.6x overcharge; 1.5 at v2's rate also sends v2's
-                // transcribeStyle: clean).
-                //
-                // The property this pins: the model reaches the request as
-                // immutable per-call state. Interleave two "requests" the way the
-                // race did — build both before either resolves — and each must
-                // still answer with its own model.
-                var factory = new HyperWhisper.Services.Transcription.TranscriptionProviderFactory();
-                try
-                {
-                    var requestA = factory.GetConfiguredCloudProvider(
-                        CloudTranscriptionProvider.MicrosoftAzureSpeech, "mai-transcribe-1.5");
-                    var requestB = factory.GetConfiguredCloudProvider(
-                        CloudTranscriptionProvider.MicrosoftAzureSpeech, "mai-transcribe-2");
-
-                    Assert(!ReferenceEquals(requestA, requestB),
-                        "the factory handed both requests the SAME routed instance - the model is shared mutable state again");
-
-                    var routedA = requestA as HyperWhisper.Services.Transcription.RoutedTranscriptionServiceBase;
-                    var routedB = requestB as HyperWhisper.Services.Transcription.RoutedTranscriptionServiceBase;
-                    Assert(routedA != null && routedB != null,
-                        "the Azure MAI arm stopped returning a RoutedTranscriptionServiceBase");
-
-                    // Resolve AFTER both were built - this is the interleaving
-                    // that produced the wrong bill.
-                    Assert(routedA!.ResolveRoutedModel() == "mai-transcribe-1.5",
-                        "request A's model was overwritten by a later overlapping request");
-                    Assert(routedB!.ResolveRoutedModel() == "mai-transcribe-2",
-                        "request B did not carry its own model");
-                }
-                finally
-                {
-                    factory.Dispose();
-                }
             });
 
             RunAsync("two overlapping BYOK calls on the shared provider each send their own model (#753)", async () =>
@@ -11548,88 +10869,6 @@ internal static class Program
                 {
                     factory.Dispose();
                     try { File.Delete(audioPath); } catch (IOException) { }
-                }
-            });
-
-            Run("the Azure MAI language picker narrows per model, not per tier", () =>
-            {
-                // The Mode editor's Azure branch (ModeEditorWindow.xaml.cs) is WPF
-                // UI with no unit-test home, so pin the DATA it reads instead.
-                //
-                // The two Azure models have different language sets, and
-                // cloud-stt-catalog.json's provider-level `languages.codes` is
-                // their UNION — so a tier-keyed filter would offer a 1.5 user the
-                // 18 codes only v2 has, and Azure would silently auto-detect on
-                // each of them. `models-catalog.json` is the only file that
-                // carries the split; this is the assertion that keeps it honest.
-                var key = HyperWhisper.Services.SharedModelsCatalog.CatalogKey(
-                    CloudTranscriptionProvider.MicrosoftAzureSpeech);
-
-                var v15 = HyperWhisper.Services.SharedModelsCatalog.GetLanguageSupport(
-                    key, HyperWhisper.Services.CatalogKind.Voice, "mai-transcribe-1.5");
-                var v2 = HyperWhisper.Services.SharedModelsCatalog.GetLanguageSupport(
-                    key, HyperWhisper.Services.CatalogKind.Voice, "mai-transcribe-2");
-
-                Assert(!v15.SupportsAll && !v2.SupportsAll,
-                    "an Azure model lost its per-model language set - the picker would fall back to every language");
-                Assert(v15.Codes.Count == 41,
-                    $"mai-transcribe-1.5 should carry 41 picker codes, got {v15.Codes.Count}");
-                Assert(v2.Codes.Count == 59,
-                    $"mai-transcribe-2 should carry 59 picker codes, got {v2.Codes.Count}");
-
-                // `he` (Hebrew) is the code that proves the split is real: v2
-                // lists it, 1.5 does not.
-                Assert(v2.Supports("he") && !v15.Supports("he"),
-                    "Hebrew must be v2-only - if both or neither carry it the per-model split is not being read");
-                Assert(v2.Supports("tl") && v2.Supports("yue") && v2.Supports("zh"),
-                    "v2 lost one of the codes the upstream->picker fold produces (fil->tl, yue, zh)");
-
-                // The fold drops Odia on BOTH: upstream lists `or`, the shared
-                // language catalog has no row for it, so no picker can offer it.
-                Assert(!v2.Supports("or") && !v15.Supports("or"),
-                    "`or` (Odia) reached a picker set - it has no shared language-catalog row");
-
-                // 1.5's set must be a strict subset of v2's, or one of the two
-                // lists was hand-edited rather than folded from the same source.
-                foreach (var code in v15.Codes)
-                {
-                    Assert(v2.Codes.Contains(code),
-                        $"mai-transcribe-1.5 carries '{code}' but mai-transcribe-2 does not - the two lists have diverged");
-                }
-
-                // And the tier default is v2, which is what the picker preselects.
-                Assert(CloudSttCatalog.Shared.DefaultModelIdForId("azureMaiTranscribe") == "mai-transcribe-2",
-                    "the azureMaiTranscribe tier default is no longer mai-transcribe-2");
-            });
-
-            Run("the Mode editor's per-model Azure language branch is reachable", () =>
-            {
-                // The data assertions above passed for a whole review round while
-                // the branch that reads them could not execute:
-                // ResolveEffectiveCloudProviderAndModel resolved the HW Cloud tier
-                // through FromIdentifier, which has no `azure-mai` arm, so the
-                // branch's `cloudProvider == MicrosoftAzureSpeech` guard was never
-                // true and the picker fell to the tier branch — the 60-code union.
-                // This is the trace, asserted step by step, so a rename or a
-                // dropped arm fails here instead of silently un-filtering.
-                var sttProvider = CloudSttCatalog.Shared.SttProviderForId("azureMaiTranscribe");
-                Assert(sttProvider == "azure-mai",
-                    $"azureMaiTranscribe's sttProvider is '{sttProvider}', not 'azure-mai'");
-                Assert(CloudTranscriptionProviderExtensions.FromCatalogSttProvider(sttProvider)
-                        == CloudTranscriptionProvider.MicrosoftAzureSpeech,
-                    "the catalog's azure-mai sttProvider no longer resolves to MicrosoftAzureSpeech - "
-                    + "the Mode editor's per-model Azure language branch is unreachable again");
-
-                // Every HW Cloud tier must resolve to a real provider, or its
-                // provider-keyed branches are dead the same way. Derived from the
-                // catalog, so a new tier is covered the day it lands.
-                foreach (var entry in CloudSttCatalog.Shared.CloudTierEligibleProviders())
-                {
-                    var resolved = CloudTranscriptionProviderExtensions.FromCatalogSttProvider(
-                        CloudSttCatalog.Shared.SttProviderForId(entry.Id));
-                    Assert(resolved != CloudTranscriptionProvider.None,
-                        $"HW Cloud tier '{entry.Id}' resolves to no provider enum; every "
-                        + "provider-keyed branch in the Mode editor is skipped for it");
                 }
             });
 
@@ -12564,144 +11803,6 @@ internal static class Program
                 Assert(!TranscriptionService.IsCpuOnlyRuntimeOrder("nonsense"), "unknown names keep the default (Vulkan) order");
             });
 
-            // Detach any WPF DispatcherSynchronizationContext left by earlier UI checks
-            // before running RunAsync blocks below (restored after #740).
-            var limitsPreviousContext = SynchronizationContext.Current;
-            SynchronizationContext.SetSynchronizationContext(null);
-
-            // =================================================================
-            // Issue #740: the HyperWhisper Cloud credit balance.
-            //
-            // HyperWhisperCloudManager reads the user's paid balance from /usage.
-            // Its internal constructor takes the HTTP client and the clock, so the
-            // 60 s cache, force_refresh, the error path and the onboarding key
-            // override run against a scripted /usage reply with no network and no
-            // wall-clock wait. A test instance never subscribes to the process-wide
-            // LicenseManager, so no handler leaks onto that singleton.
-            // =================================================================
-
-            static string UsageReply(double credits) =>
-                "{\"credits_remaining\":" + credits.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                + ",\"minutes_remaining\":10,\"credits_per_minute\":1.67,\"is_licensed\":false}";
-
-            static DateTime CreditsEpoch() => new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-
-            RunAsync("credits: two reads inside 60s send one request", async () =>
-            {
-                var now = CreditsEpoch();
-                var handler = new CapturingHandler { Next = () => Respond(HttpStatusCode.OK, UsageReply(500)) };
-                using var client = new HttpClient(handler);
-                using var manager = new HyperWhisperCloudManager(client, () => now);
-
-                var first = await manager.FetchCreditsAsync();
-                Assert(first?.CreditsRemaining == 500, $"first read returned {first?.CreditsRemaining}");
-
-                // AddMilliseconds, not AddSeconds(59.9): see issue #379 (b) further down.
-                now = now.AddMilliseconds(59_900);
-                handler.Next = () => Respond(HttpStatusCode.OK, UsageReply(400));
-                var second = await manager.FetchCreditsAsync();
-
-                Assert(handler.Sends == 1, $"two reads inside 60s sent {handler.Sends} requests");
-                Assert(ReferenceEquals(second, first), "the second read did not return the cached balance");
-            });
-
-            RunAsync("credits: a read after 60s sends a second request", async () =>
-            {
-                var now = CreditsEpoch();
-                var handler = new CapturingHandler { Next = () => Respond(HttpStatusCode.OK, UsageReply(500)) };
-                using var client = new HttpClient(handler);
-                using var manager = new HyperWhisperCloudManager(client, () => now);
-
-                await manager.FetchCreditsAsync();
-
-                // The gate is `elapsed < 60 s` -> cached, so exactly 60 s is already stale.
-                now = now.AddSeconds(60);
-                handler.Next = () => Respond(HttpStatusCode.OK, UsageReply(400));
-                var second = await manager.FetchCreditsAsync();
-
-                Assert(handler.Sends == 2, $"a read at 60s sent {handler.Sends} requests in total");
-                Assert(second?.CreditsRemaining == 400, $"the read after 60s returned {second?.CreditsRemaining}");
-                Assert(manager.Credits?.CreditsRemaining == 400, $"Credits holds {manager.Credits?.CreditsRemaining}");
-            });
-
-            RunAsync("credits: forceRefresh bypasses the warm cache and sets force_refresh=true", async () =>
-            {
-                var now = CreditsEpoch();
-                var handler = new CapturingHandler { Next = () => Respond(HttpStatusCode.OK, UsageReply(500)) };
-                using var client = new HttpClient(handler);
-                using var manager = new HyperWhisperCloudManager(client, () => now);
-
-                await manager.FetchCreditsAsync();
-                var firstQuery = handler.LastRequestUri?.Query ?? "";
-                Assert(!firstQuery.Contains("force_refresh"), $"a plain read sent {firstQuery}");
-
-                now = now.AddSeconds(1);
-                handler.Next = () => Respond(HttpStatusCode.OK, UsageReply(400));
-                var forced = await manager.FetchCreditsAsync(forceRefresh: true);
-
-                Assert(handler.Sends == 2, $"forceRefresh on a warm cache sent {handler.Sends} requests in total");
-                Assert(handler.LastRequestUri?.Query.Contains("&force_refresh=true") == true,
-                    $"forced read query {handler.LastRequestUri?.Query}");
-                Assert(forced?.CreditsRemaining == 400, $"forced read returned {forced?.CreditsRemaining}");
-            });
-
-            RunAsync("credits: a 500 keeps the last known balance and records LastError", async () =>
-            {
-                var now = CreditsEpoch();
-                var handler = new CapturingHandler { Next = () => Respond(HttpStatusCode.OK, UsageReply(500)) };
-                using var client = new HttpClient(handler);
-                using var manager = new HyperWhisperCloudManager(client, () => now);
-
-                var known = await manager.FetchCreditsAsync();
-                var shownBalance = manager.FormattedBalance;
-
-                // A JSON error body: the server's own message becomes LastError.
-                now = now.AddSeconds(61);
-                handler.Next = () => Respond(HttpStatusCode.InternalServerError, "{\"error\":\"usage store unavailable\"}");
-                var failed = await manager.FetchCreditsAsync();
-
-                Assert(handler.Sends == 2, $"the stale read sent {handler.Sends} requests in total");
-                Assert(failed is null, "a 500 returned a balance");
-                Assert(ReferenceEquals(manager.Credits, known), "a 500 replaced or cleared the last known balance");
-                Assert(manager.FormattedBalance == shownBalance,
-                    $"the panel balance moved from \"{shownBalance}\" to \"{manager.FormattedBalance}\"");
-                Assert(manager.LastError == "usage store unavailable", $"LastError \"{manager.LastError}\"");
-                Assert(manager.HasError, "HasError is false after a 500");
-                Assert(!manager.IsFetchingCredits, "IsFetchingCredits stuck true after a 500");
-
-                // A body with no message falls back to the status code, and still keeps the balance.
-                handler.Next = () => Respond(HttpStatusCode.InternalServerError, "<html>bad gateway</html>");
-                await manager.FetchCreditsAsync(forceRefresh: true);
-
-                Assert(manager.LastError == "HTTP 500", $"LastError for a non-JSON 500 \"{manager.LastError}\"");
-                Assert(ReferenceEquals(manager.Credits, known), "a non-JSON 500 replaced or cleared the last known balance");
-            });
-
-            RunAsync("credits: licenseKeyOverride selects the identifier, not the device id", async () =>
-            {
-                const string typedKey = "OVERRIDE-KEY-740";
-                var handler = new CapturingHandler { Next = () => Respond(HttpStatusCode.OK, UsageReply(500)) };
-                using var client = new HttpClient(handler);
-                using var manager = new HyperWhisperCloudManager(client, CreditsEpoch);
-
-                // Surrounding whitespace, as a pasted key often has: the override is trimmed.
-                await manager.FetchCreditsAsync(licenseKeyOverride: "  " + typedKey + " ");
-
-                Assert(handler.Sends == 1, $"the override read sent {handler.Sends} requests");
-                Assert(handler.LastRequestUri?.Query == "?identifier=" + typedKey,
-                    $"override read query {handler.LastRequestUri?.Query}");
-
-                // Without the override the same manager asks about the stored identity
-                // (the device id on a CI runner), which is a different identifier.
-                var stored = LicenseManager.Instance.GetTranscriptionIdentifier().Identifier;
-                Assert(stored != typedKey, "the stored identifier equals the override; the check proves nothing");
-                await manager.FetchCreditsAsync(forceRefresh: true);
-                Assert(handler.LastRequestUri?.Query.StartsWith("?identifier=" + Uri.EscapeDataString(stored) + "&") == true,
-                    "a read with no override did not ask about the stored identifier");
-            });
-
-            SynchronizationContext.SetSynchronizationContext(limitsPreviousContext);
-
             // =================================================================
             // Issue #379 — real transcription outcomes feed the health cache.
             //
@@ -12741,7 +11842,7 @@ internal static class Program
                 Assert(handler.LastAuthorizationScheme is null, "Gemini sent an authorization header");
             });
 
-            const CloudTranscriptionProvider healthProvider = CloudTranscriptionProvider.GoogleSpeech;
+            const CloudTranscriptionProvider healthProvider = CloudTranscriptionProvider.None;
 
             static TranscriptionException ProviderDown() => new(
                 TranscriptionErrorCode.ProviderUnavailable, "Google Chirp 3 unavailable", "Google Chirp 3", 503);
@@ -12909,8 +12010,6 @@ internal static class Program
                 Assert(apiKeys.SetApiKey(PostProcessingProvider.OpenAI, "k").IsSuccess &&
                        apiKeys.GetApiKey(PostProcessingProvider.OpenAI) == "k",
                     "the store refused a one-character key");
-                Assert(apiKeys.SetApiKey(PostProcessingProvider.HyperWhisperCloud, newGeminiKey).IsFailure,
-                    "a key for HyperWhisper Cloud, which takes none, was stored");
             });
 
             Run("issue #2410: every BYOK key write trims, from the store, onboarding and backup import", () =>
@@ -12974,23 +12073,20 @@ internal static class Program
                     "a whitespace-only key in a backup cleared the stored Deepgram key");
             });
 
-            Run("issue #649: the status bar says (Not activated) / (No API key) instead of (Ready), and follows the licence with no restart", () =>
+            Run("issue #649: the status bar says (No API key) instead of (Ready) for unconfigured BYOK modes", () =>
             {
                 const BindingFlags all = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
                 string L(string key, string arg) => HyperWhisper.Localization.Loc.S(key, arg);
 
-                // The pure decision first: which credential each provider needs.
-                Assert(MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.HyperWhisperCloud, false, false, ProviderHealth.Unknown) == "status.model.notActivated"
-                       && MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.HyperWhisperCloud, true, false, ProviderHealth.Unknown) == "status.model.ready",
-                    "HyperWhisper Cloud reads the account key");
-                Assert(MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.MicrosoftAzureSpeech, false, true, ProviderHealth.Unknown) == "status.model.notActivated"
-                       && MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.GoogleSpeech, false, true, ProviderHealth.Unknown) == "status.model.notActivated",
-                    "the HW-Cloud-routed Azure MAI / Chirp rows need the account key, not a BYOK key (as /transcribe and #650)");
-                Assert(MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.OpenAI, true, false, ProviderHealth.Unknown) == "status.model.noApiKey"
-                       && MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.Deepgram, false, true, ProviderHealth.Unknown) == "status.model.ready",
-                    "a BYOK provider reads its own key, whatever the licence");
-                foreach (var key in new[] { "status.model.notActivated", "status.model.noApiKey" })
-                    Assert(L(key, "X") != key && L(key, "X").Contains('X'), $"{key} is missing from Strings.resx or lost its {{0}}");
+                // The pure decision first: each BYOK provider reads its own key.
+                Assert(MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.None, false, ProviderHealth.Unknown) == "status.model.noApiKey"
+                       && MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.None, true, ProviderHealth.Healthy) == "status.model.noApiKey",
+                    "None always reports No API key");
+                Assert(MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.OpenAI, false, ProviderHealth.Unknown) == "status.model.noApiKey"
+                       && MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.Deepgram, true, ProviderHealth.Unknown) == "status.model.ready",
+                    "a BYOK provider reads its own key");
+                Assert(L("status.model.noApiKey", "X") != "status.model.noApiKey" && L("status.model.noApiKey", "X").Contains('X'),
+                    "status.model.noApiKey is missing from Strings.resx or lost its {0}");
 
                 // Then the real status bar, on a MainViewModel with no model loaded.
                 var vm = (MainViewModel)System.Runtime.CompilerServices.RuntimeHelpers
@@ -13015,59 +12111,7 @@ internal static class Program
                 // No BYOK key anywhere, and never the machine's Credential Manager.
                 vm.ApiKeyServiceOverride = new ApiKeyService(new InMemoryCredentialBackend());
 
-                var hyper = new Mode
-                {
-                    Id = ModeDefaults.DefaultModeId,
-                    Name = "Hyper",
-                    ProviderType = "cloud",
-                    CloudProvider = "hyperwhisper"
-                };
-                Assert(hyper.ProviderType == "cloud"
-                       && CloudTranscriptionProviderExtensions.FromModeCloudProvider(hyper.CloudProvider) == CloudTranscriptionProvider.HyperWhisperCloud,
-                    "precondition: synthetic HyperWhisper Cloud mode");
-                var cloudName = CloudTranscriptionProvider.HyperWhisperCloud.GetDisplayName();
-
-                // Fresh profile: this process has never loaded or activated a licence.
-                Assert(!LicenseManager.Instance.GetTranscriptionIdentifier().IsLicensed, "precondition: the smoke process is unlicensed");
-                selectedMode.SetValue(vm, hyper);
-                updateModelStatus.Invoke(vm, null);
-                Assert(!vm.ModelStatus.Contains(L("status.model.ready", "").Trim(), StringComparison.Ordinal),
-                    $"no account key, yet the status bar says Ready: '{vm.ModelStatus}'");
-                Assert(vm.ModelStatus == L("status.model.notActivated", cloudName),
-                    $"expected '{L("status.model.notActivated", cloudName)}', got '{vm.ModelStatus}'");
-
-                // Activation, through LicenseManager and its LicenseStatusChanged, no
-                // restart. A smoke run has no account key and must never store one in
-                // the machine's Credential Manager, so the stored-key half of the
-                // production predicate is stood in for; the status flip is real.
-                var manager = LicenseManager.Instance;
-                var statusSetter = typeof(LicenseManager).GetProperty(nameof(LicenseManager.LicenseStatus))!.GetSetMethod(nonPublic: true)
-                    ?? throw new InvalidOperationException("LicenseManager.LicenseStatus has no setter; update this test");
-                var statusBefore = manager.LicenseStatus;
-                vm.CloudAccountKeyPresentOverride = () => LicenseManager.Instance.IsLicensed;
-                vm.AttachModelStatusSources();
-                try
-                {
-                    statusSetter.Invoke(manager, new object[] { LicenseStatus.Trial });
-                    updateModelStatus.Invoke(vm, null);
-                    Assert(vm.ModelStatus == L("status.model.notActivated", cloudName), "still not activated before the licence lands");
-
-                    statusSetter.Invoke(manager, new object[] { LicenseStatus.Active });
-                    Assert(vm.ModelStatus == L("status.model.ready", cloudName),
-                        $"LicenseStatusChanged did not refresh the status bar to Ready: '{vm.ModelStatus}'");
-
-                    statusSetter.Invoke(manager, new object[] { LicenseStatus.Trial });
-                    Assert(vm.ModelStatus == L("status.model.notActivated", cloudName),
-                        $"a deactivated licence left the status bar on Ready: '{vm.ModelStatus}'");
-                }
-                finally
-                {
-                    vm.DetachModelStatusSources();
-                    statusSetter.Invoke(manager, new object[] { statusBefore });
-                }
-
-                // A BYOK mode with no key: (No API key), licence or not.
-                vm.CloudAccountKeyPresentOverride = () => true;
+                // A BYOK mode with no key must read (No API key), not (Ready).
                 selectedMode.SetValue(vm, new Mode { Name = "OpenAI", ProviderType = "cloud", CloudProvider = "openai" });
                 updateModelStatus.Invoke(vm, null);
                 Assert(vm.ModelStatus.EndsWith(L("status.model.noApiKey", "").Trim(), StringComparison.Ordinal)
@@ -13082,15 +12126,13 @@ internal static class Program
                 var groq = CloudTranscriptionProvider.Groq;
 
                 // The pure decision: only Unauthorized turns a stored key into Key invalid.
-                Assert(MainViewModel.CloudModelStatusKey(groq, false, hasApiKey: true, ProviderHealth.Unauthorized) == "status.model.keyInvalid",
+                Assert(MainViewModel.CloudModelStatusKey(groq, hasApiKey: true, ProviderHealth.Unauthorized) == "status.model.keyInvalid",
                     "a rejected Groq key must read Key invalid");
                 foreach (var verdict in new[] { ProviderHealth.Healthy, ProviderHealth.Unknown, ProviderHealth.Checking, ProviderHealth.Unreachable })
-                    Assert(MainViewModel.CloudModelStatusKey(groq, false, hasApiKey: true, verdict) == "status.model.ready",
+                    Assert(MainViewModel.CloudModelStatusKey(groq, hasApiKey: true, verdict) == "status.model.ready",
                         $"a stored Groq key with health {verdict} must stay Ready");
-                Assert(MainViewModel.CloudModelStatusKey(groq, false, hasApiKey: false, ProviderHealth.Unauthorized) == "status.model.noApiKey",
+                Assert(MainViewModel.CloudModelStatusKey(groq, hasApiKey: false, ProviderHealth.Unauthorized) == "status.model.noApiKey",
                     "no key at all still reads No API key");
-                Assert(MainViewModel.CloudModelStatusKey(CloudTranscriptionProvider.HyperWhisperCloud, true, false, ProviderHealth.Unauthorized) == "status.model.ready",
-                    "the account-key path (#649) does not read BYOK health");
                 Assert(L("status.model.keyInvalid", "X") != "status.model.keyInvalid" && L("status.model.keyInvalid", "X").Contains('X'),
                     "status.model.keyInvalid is missing from Strings.resx or lost its {0}");
 
@@ -13126,7 +12168,6 @@ internal static class Program
                 Assert(keys.HasApiKey(groq), "precondition: Groq reads the saved key");
                 vm.ApiKeyServiceOverride = keys;
                 vm.ProviderHealthOverride = health;
-                vm.CloudAccountKeyPresentOverride = () => false;
 
                 var mode = new Mode { Name = "Hyper", ProviderType = "cloud", CloudProvider = "groq", CloudTranscriptionModel = "whisper-large-v3-turbo" };
                 Assert(CloudTranscriptionProviderExtensions.FromModeCloudProvider(mode.CloudProvider) == groq, "precondition: the mode is a Groq mode");
@@ -13419,11 +12460,8 @@ internal static class Program
                     [CloudTranscriptionProvider.ElevenLabs] = (PostProcessingProvider.None, TranscriptionApiKeyType.ElevenLabs),
                     [CloudTranscriptionProvider.Mistral] = (PostProcessingProvider.None, TranscriptionApiKeyType.Mistral),
                     [CloudTranscriptionProvider.Soniox] = (PostProcessingProvider.None, TranscriptionApiKeyType.Soniox),
-                    [CloudTranscriptionProvider.HyperWhisperCloud] = (PostProcessingProvider.None, null),
                     [CloudTranscriptionProvider.Gemini] = (PostProcessingProvider.Gemini, null),
                     [CloudTranscriptionProvider.Grok] = (PostProcessingProvider.Grok, null),
-                    [CloudTranscriptionProvider.MicrosoftAzureSpeech] = (PostProcessingProvider.None, null),
-                    [CloudTranscriptionProvider.GoogleSpeech] = (PostProcessingProvider.None, null),
                     [CloudTranscriptionProvider.GeminiTranscribe] = (PostProcessingProvider.None, TranscriptionApiKeyType.GeminiTranscribe),
                     [CloudTranscriptionProvider.Meta] = (PostProcessingProvider.None, TranscriptionApiKeyType.Meta),
                 };
@@ -13510,7 +12548,7 @@ internal static class Program
                     healthProvider, health.CaptureTranscriptionCredentialGeneration(healthProvider), ProviderDown());
                 Assert(health.GetHealthStatus(healthProvider) == ProviderHealth.Unreachable, "precondition");
 
-                // GoogleSpeech is keyless, so RefreshAsync short-circuits to Unknown
+                // CloudTranscriptionProvider.None is keyless, so RefreshAsync short-circuits to Unknown
                 // without any network I/O. The value that matters is that it is the
                 // probe's own verdict and NOT the override's Unreachable.
                 var refreshed = health.RefreshAsync(healthProvider, force: true).GetAwaiter().GetResult();
@@ -13535,7 +12573,7 @@ internal static class Program
                     "/health must apply the failure override");
 
                 now = now.AddSeconds(2);
-                // The t=0 raw probe is expired. GoogleSpeech has no BYOK key, so
+                // The t=0 raw probe is expired. CloudTranscriptionProvider.None has no BYOK key, so
                 // reaching the normal refresh path returns its raw Unknown. If
                 // the failure had re-stamped the cache at t=59, this call would
                 // return cached Unreachable and suppress the refresh instead.
@@ -14643,27 +13681,6 @@ internal static class Program
                 Assert(!h.Flow.HasInFlightWorkForTesting, "and must not start a probe");
             });
 
-            RunAsync("licence #1489: LicenseManager refuses text that cannot be a key before the network", async () =>
-            {
-                var manager = LicenseManager.Instance;
-                var statusBefore = manager.LicenseStatus;
-                var expected = HyperWhisper.Localization.Loc.S("license.error.keyFormat");
-                Assert(expected != "license.error.keyFormat", "the hint string must be in the catalog");
-
-                foreach (var refused in new[] { "", "two words", new string('A', 65), "cl\u00E9-de-compte" })
-                {
-                    var activation = await manager.ActivateLicenseAsync(refused);
-                    Assert(!activation.IsValid && activation.ErrorMessage == expected,
-                        $"activation of '{refused}' was not refused with the format hint");
-                    var probe = await manager.ProbeLicenseAsync(refused);
-                    Assert(!probe.IsValid && probe.ErrorMessage == expected,
-                        $"probe of '{refused}' was not refused with the format hint");
-                }
-
-                Assert(manager.LicenseStatus == statusBefore && !manager.IsValidating,
-                    "a refused key must leave the licence state alone");
-            });
-
             RunAsync("onboarding F4: a throwing provider probe clears the spinner", async () =>
             {
                 // The sibling. It was already recoverable by leaving and re-entering
@@ -15254,18 +14271,6 @@ internal static class Program
                         $"{provider} is offered on the BYOK branch but Persist() has no slot for its key, "
                         + "so the setup step would fail with 'could not save'");
                 }
-
-                // These three need no key: HyperWhisper Cloud has its own step, and
-                // the health probe for the two platform providers short-circuits to
-                // Healthy WITHOUT one. Offering them opens the gate on a pass that
-                // proves nothing.
-                foreach (var excluded in new[]
-                {
-                    CloudTranscriptionProvider.HyperWhisperCloud,
-                    CloudTranscriptionProvider.MicrosoftAzureSpeech,
-                    CloudTranscriptionProvider.GoogleSpeech,
-                })
-                    Assert(!offered.Contains(excluded), $"{excluded} must not be offered as a BYOK key vendor");
             });
 
             Run("onboarding: committing a staged source writes the Windows engine columns", () =>
@@ -15472,87 +14477,6 @@ internal static class Program
                 LocalModeModel.ApplyOnDevice(whisper);
                 Assert(whisper.Model == "large-v3-turbo", $"Model must mirror ModelType, got \"{whisper.Model}\"");
                 Assert(whisper.CloudProvider is null, "CloudProvider must be cleared");
-            });
-
-            Run("Local API Cloud mode with no cloudProvider (#1521): runs and shows as HyperWhisper Cloud", () =>
-            {
-                // The parse itself. Blank means HyperWhisper Cloud, as macOS
-                // reads a nil cloudProvider; a known id is unchanged; a non-blank
-                // unknown id is still None (a bad value, not an omitted one).
-                foreach (var blank in new string?[] { null, "", "   " })
-                {
-                    Assert(CloudTranscriptionProviderExtensions.FromModeCloudProvider(blank)
-                            == CloudTranscriptionProvider.HyperWhisperCloud,
-                        $"a blank cloudProvider ('{blank ?? "<null>"}') must read as HyperWhisper Cloud");
-                }
-                Assert(CloudTranscriptionProviderExtensions.FromModeCloudProvider("hyperwhisper")
-                        == CloudTranscriptionProvider.HyperWhisperCloud,
-                    "'hyperwhisper' must read as HyperWhisper Cloud");
-                Assert(CloudTranscriptionProviderExtensions.FromModeCloudProvider("openai")
-                        == CloudTranscriptionProvider.OpenAI,
-                    "a BYOK provider id must keep its own provider");
-                Assert(CloudTranscriptionProviderExtensions.FromModeCloudProvider("not-a-provider")
-                        == CloudTranscriptionProvider.None,
-                    "an unknown non-blank id must still read as None");
-                // The plain identifier parse is untouched: the editor's combo
-                // tags and the engine dispatch still rely on blank -> None.
-                Assert(CloudTranscriptionProviderExtensions.FromIdentifier(null) == CloudTranscriptionProvider.None,
-                    "FromIdentifier(null) must stay None");
-
-                // The mode POST /modes stores for the issue's body:
-                // {"model":"cloud", ...} with no cloudProvider.
-                var posted = new Mode
-                {
-                    Name = "S8 Cloud",
-                    ProviderType = "cloud",
-                    Model = "cloud",
-                    CloudProvider = null,
-                    CloudAccuracyTier = "elevenLabsScribeV2",
-                };
-                Assert(TranscriptionProviderFactory.IsHyperWhisperCloudActive(posted),
-                    "a Cloud mode with no cloudProvider must resolve to HyperWhisper Cloud");
-                var subtitle = new ModeToSubtitleConverter()
-                    .Convert(posted, typeof(string), null!, CultureInfo.InvariantCulture) as string;
-                Assert(subtitle == CloudTranscriptionProvider.HyperWhisperCloud.GetDisplayName(),
-                    $"the mode subtitle must name HyperWhisper Cloud, got \"{subtitle}\"");
-                Assert(subtitle != CloudTranscriptionProvider.None.GetDisplayName(),
-                    "the mode subtitle must not read None");
-
-                // Making a local mode cloud leaves cloudProvider null too;
-                // it must run on HyperWhisper Cloud the same way.
-                var flipped = new Mode
-                {
-                    ProviderType = "local",
-                    LocalEngine = "whisper",
-                    ModelType = "base",
-                    Model = "base",
-                    CloudProvider = null,
-                    CloudAccuracyTier = "elevenLabsScribeV2",
-                };
-                flipped.ProviderType = "cloud";
-                flipped.Model = "cloud";
-                Assert(flipped.ProviderType == "cloud", $"PATCH model:cloud must make the mode cloud, got \"{flipped.ProviderType}\"");
-                Assert(TranscriptionProviderFactory.IsHyperWhisperCloudActive(flipped),
-                    "a mode PATCHed to Cloud with no cloudProvider must resolve to HyperWhisper Cloud");
-
-                // A LOCAL mode with no cloudProvider is not a HyperWhisper Cloud
-                // mode: the default applies to cloud modes only.
-                Assert(!TranscriptionProviderFactory.IsHyperWhisperCloudActive(new Mode
-                {
-                    ProviderType = "local",
-                    LocalEngine = "whisper",
-                    ModelType = "base",
-                    Model = "base",
-                    CloudProvider = null,
-                }), "a local mode must not read as HyperWhisper Cloud");
-
-                // An explicit BYOK provider is untouched.
-                Assert(!TranscriptionProviderFactory.IsHyperWhisperCloudActive(new Mode
-                {
-                    ProviderType = "cloud",
-                    Model = "cloud",
-                    CloudProvider = "openai",
-                }), "a BYOK cloud mode must not read as HyperWhisper Cloud");
             });
 
             Run("backup export (#1477): an On-device mode switched back to Cloud exports model cloud", () =>
@@ -20325,15 +19249,6 @@ internal static class Program
                         $"{code}: the toast reads '{toast.Message}', not the user message");
                 }
 
-                var cloud = new TranscriptionException(TranscriptionErrorCode.CloudAccountRequired, "raw", "HyperWhisper Cloud");
-                var cloudToast = MainViewModel.TranscriptionFailureToast(cloud);
-                Assert(cloudToast.ShowSettingsButton, "CloudAccountRequired: the toast has no Settings button");
-                Assert(cloudToast.SettingsSection == "Cloud",
-                    $"CloudAccountRequired: section is '{cloudToast.SettingsSection}', not Cloud");
-                Assert(!cloudToast.OpenApiKeysManager,
-                    "CloudAccountRequired opens the BYOK API-keys manager instead of the Cloud page");
-                Assert(cloudToast.Message == cloud.GetUserMessage(), $"CloudAccountRequired: reads '{cloudToast.Message}'");
-
                 var noSpeech = new TranscriptionException(TranscriptionErrorCode.NoSpeechDetected, "raw", "Whisper");
                 var noSpeechToast = MainViewModel.TranscriptionFailureToast(noSpeech);
                 Assert(!noSpeechToast.ShowSettingsButton && !noSpeechToast.OpenApiKeysManager
@@ -23060,206 +21975,11 @@ internal static class Program
             ScriptGuardPorts.RunAll(Run);
             OutputMuteOwnershipChecks.RunAll(Run);
             LoggingServiceFlushChecks.RunAll(Run);
-            CloudCreditsWarningChecks.RunAll(Run);
-            InsufficientCreditsMessageChecks.RunAll(Run);
             PendingHistoryUnreadableChecks.RunAll(Run);
             MonoFoldMidFrameChecks.RunAll(Run);
             ParakeetGuiLoadReloadChecks.RunAll(Run);
             TranscriptionRetryHandlerChecks.RunAll(Run);
             WindowIconDpiChecks.RunAll(Run, EnsureSmokeApplication);
-
-            // Issue #738: LicenseNetworkService over a scripted HttpClient (its internal
-            // seam), so the rules that ACT on a server reply run without the backend.
-            // The store is the suite's scratch profile: AppPaths scopes kvstore.json and
-            // the Credential Manager resource to the temp root set at the top of Main.
-            // The probe and the transient-validate rules both answer with this text.
-            const string licenceSeamOfflineMessage = "Unable to verify license while offline";
-            const string licenceSeamProbeKey = "HW-AAAA-BBBB-CCCC-DDDD";
-
-            // RunAsync blocks on GetAwaiter().GetResult(), and an earlier case leaves a
-            // DispatcherSynchronizationContext on this thread that no loop pumps. The
-            // timeout reply completes truly asynchronously, so its continuation would
-            // never run and the suite would hang. Detach for the block, as the
-            // onboarding and limits blocks do.
-            var licenceSeamPreviousContext = SynchronizationContext.Current;
-            SynchronizationContext.SetSynchronizationContext(null);
-
-            RunAsync("probe: a 429 reports unavailable, not an invalid key", async () =>
-            {
-                var handler = new LicenceSeamReplyHandler(HttpStatusCode.TooManyRequests, "{\"valid\":false,\"error\":\"rate limited\"}");
-                using var service = new LicenseNetworkService(new HttpClient(handler));
-                var result = await service.ProbeLicenseAsync(licenceSeamProbeKey);
-                Assert(handler.Bodies.Count == 1, $"the probe must reach the scripted server once, sent {handler.Bodies.Count}");
-                Assert(!result.IsValid && result.ErrorMessage == licenceSeamOfflineMessage,
-                    $"a 429 is not a verdict about the key, got valid={result.IsValid} message='{result.ErrorMessage}'");
-            });
-
-            RunAsync("probe: a 503 reports unavailable, not an invalid key", async () =>
-            {
-                var handler = new LicenceSeamReplyHandler(HttpStatusCode.ServiceUnavailable, "{\"valid\":false,\"error\":\"maintenance\"}");
-                using var service = new LicenseNetworkService(new HttpClient(handler));
-                var result = await service.ProbeLicenseAsync(licenceSeamProbeKey);
-                Assert(handler.Bodies.Count == 1, $"the probe must reach the scripted server once, sent {handler.Bodies.Count}");
-                Assert(!result.IsValid && result.ErrorMessage == licenceSeamOfflineMessage,
-                    $"a 503 is not a verdict about the key, got valid={result.IsValid} message='{result.ErrorMessage}'");
-            });
-
-            RunAsync("probe: a 400 not_entitled reply is a real Invalid verdict", async () =>
-            {
-                var handler = new LicenceSeamReplyHandler(HttpStatusCode.BadRequest,
-                    "{\"valid\":false,\"error\":\"License key not found\",\"reason\":\"not_entitled\"}");
-                using var service = new LicenseNetworkService(new HttpClient(handler));
-                var result = await service.ProbeLicenseAsync(licenceSeamProbeKey);
-                Assert(!result.IsValid && result.Status == LicenseStatus.Invalid,
-                    $"a not_entitled reply must be Invalid, got valid={result.IsValid} status={result.Status}");
-                Assert(result.ErrorMessage == "License key not found",
-                    $"the server's own message must reach the user, not the offline text, got '{result.ErrorMessage}'");
-            });
-
-            RunAsync("probe: a valid key is NOT stored by a probe", async () =>
-            {
-                var handler = new LicenceSeamReplyHandler(HttpStatusCode.OK,
-                    "{\"valid\":true,\"status\":\"active\",\"customer_id\":\"cus_seam_0738\"}");
-                using var service = new LicenseNetworkService(new HttpClient(handler));
-                var keyBefore = service.GetStoredLicenseKey();
-                var cachedBefore = service.GetCachedStatus();
-                Assert(keyBefore != licenceSeamProbeKey, "the probe key is already stored; this check would prove nothing");
-
-                var result = await service.ProbeLicenseAsync(licenceSeamProbeKey);
-                Assert(result.IsValid && result.Status == LicenseStatus.Active,
-                    $"the scripted valid reply must read as Active, got valid={result.IsValid} status={result.Status}");
-                Assert(service.GetStoredLicenseKey() == keyBefore,
-                    "a probe stored the key it checked; only an activation may");
-                Assert(service.GetCachedStatus() == cachedBefore,
-                    $"a probe wrote the validation cache ({cachedBefore} -> {service.GetCachedStatus()})");
-            });
-
-            RunAsync("probe: a 200 that is not the validate JSON reports unavailable, not an invalid key (#2916)", async () =>
-            {
-                foreach (var body in new[] { "<html><body>Please log in to Hotel WiFi</body></html>", "" })
-                {
-                    var handler = new LicenceSeamReplyHandler(HttpStatusCode.OK, body);
-                    using var service = new LicenseNetworkService(new HttpClient(handler));
-                    var result = await service.ProbeLicenseAsync(licenceSeamProbeKey);
-                    Assert(handler.Bodies.Count == 1, $"'{body}': expected one request, sent {handler.Bodies.Count}");
-                    Assert(!result.IsValid && result.ErrorMessage == licenceSeamOfflineMessage,
-                        $"'{body}': a captive-portal 200 is not a verdict about the key, got valid={result.IsValid} message='{result.ErrorMessage}'");
-                }
-            });
-
-            RunAsync("probe: the request body carries probe_only and no device_id", async () =>
-            {
-                var handler = new LicenceSeamReplyHandler(HttpStatusCode.OK, "{\"valid\":true}");
-                using var service = new LicenseNetworkService(new HttpClient(handler));
-                await service.ProbeLicenseAsync("  " + licenceSeamProbeKey + "\n");
-                Assert(handler.Bodies.Count == 1, $"expected one request, sent {handler.Bodies.Count}");
-
-                using var body = JsonDocument.Parse(handler.Bodies[0]);
-                var root = body.RootElement;
-                Assert(root.TryGetProperty("probe_only", out var probeOnly) && probeOnly.ValueKind == JsonValueKind.True,
-                    $"the body must carry probe_only=true: {handler.Bodies[0]}");
-                Assert(root.TryGetProperty("license_key", out var sentKey) && sentKey.GetString() == licenceSeamProbeKey,
-                    $"the body must carry the trimmed key: {handler.Bodies[0]}");
-                Assert(!root.EnumerateObject().Any(p => p.Name.StartsWith("device", StringComparison.Ordinal)),
-                    $"a probe must send no device identity: {handler.Bodies[0]}");
-            });
-
-            // ValidateLicenseAsync's transient rule. This half needs a stored key with a
-            // cached verdict, so the first check seeds one through the real persist path
-            // and the finally clears it again.
-            const string licenceSeamStoredKey = "HW-EEEE-FFFF-GGGG-HHHH";
-            try
-            {
-                RunAsync("validate: a 200 valid reply stores the key and caches Active (seed for the transient checks)", async () =>
-                {
-                    var handler = new LicenceSeamReplyHandler(HttpStatusCode.OK,
-                        "{\"valid\":true,\"status\":\"active\",\"customer_id\":\"cus_seam_0738\"}");
-                    using var service = new LicenseNetworkService(new HttpClient(handler));
-                    var result = await service.ValidateLicenseAsync(licenceSeamStoredKey);
-                    Assert(result.IsValid && result.Status == LicenseStatus.Active,
-                        $"the scripted valid reply must read as Active, got valid={result.IsValid} status={result.Status}");
-                    Assert(service.GetStoredLicenseKey() == licenceSeamStoredKey, "an Active verdict must store the key");
-                    Assert(service.GetCachedStatus() == LicenseStatus.Active, "an Active verdict must be cached");
-                });
-
-                RunAsync("validate: a 429, a 500 and a timeout fall back to the stored key's cached verdict", async () =>
-                {
-                    var replies = new (string Label, LicenceSeamReplyHandler Handler)[]
-                    {
-                        ("429", new LicenceSeamReplyHandler(HttpStatusCode.TooManyRequests, "{\"valid\":false,\"error\":\"rate limited\"}")),
-                        ("500", new LicenceSeamReplyHandler(HttpStatusCode.InternalServerError, "{\"valid\":false,\"error\":\"boom\"}")),
-                        ("timeout", new LicenceSeamReplyHandler(async ct =>
-                        {
-                            await Task.Delay(Timeout.Infinite, ct);
-                            throw new InvalidOperationException("unreachable");
-                        })),
-                    };
-
-                    foreach (var (label, handler) in replies)
-                    {
-                        using var service = new LicenseNetworkService(
-                            new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(200) });
-                        var result = await service.ValidateLicenseAsync(licenceSeamStoredKey);
-                        Assert(handler.Bodies.Count == 1, $"{label}: expected one request, sent {handler.Bodies.Count}");
-                        Assert(result.IsValid && result.Status == LicenseStatus.Active,
-                            $"{label}: a transient failure downgraded a paying user, got valid={result.IsValid} status={result.Status} message='{result.ErrorMessage}'");
-                        Assert(result.ErrorMessage == "Using cached license (offline)",
-                            $"{label}: expected the cached-offline verdict, got '{result.ErrorMessage}'");
-                        Assert(service.GetStoredLicenseKey() == licenceSeamStoredKey && service.GetCachedStatus() == LicenseStatus.Active,
-                            $"{label}: a transient failure must leave the stored key and its cache alone");
-                    }
-                });
-
-                RunAsync("validate: offline, a key that is not the stored one gets no cached verdict", async () =>
-                {
-                    var handler = new LicenceSeamReplyHandler(HttpStatusCode.TooManyRequests, "{\"valid\":false,\"error\":\"rate limited\"}");
-                    using var service = new LicenseNetworkService(new HttpClient(handler));
-                    var result = await service.ValidateLicenseAsync(licenceSeamProbeKey);
-                    Assert(handler.Bodies.Count == 1, $"expected one request, sent {handler.Bodies.Count}");
-                    Assert(!result.IsValid && result.Status == LicenseStatus.Invalid && result.ErrorMessage == licenceSeamOfflineMessage,
-                        $"a different key inherited the stored key's verdict: valid={result.IsValid} status={result.Status} message='{result.ErrorMessage}'");
-                    Assert(service.GetStoredLicenseKey() == licenceSeamStoredKey && service.GetCachedStatus() == LicenseStatus.Active,
-                        "an unverified replacement key must leave the stored key and its cache alone");
-                });
-
-                RunAsync("validate: a 200 that is not the validate JSON keeps the stored key's cached verdict (#2916)", async () =>
-                {
-                    foreach (var body in new[] { "<html><body>Please log in to Hotel WiFi</body></html>", "", "{}" })
-                    {
-                        var handler = new LicenceSeamReplyHandler(HttpStatusCode.OK, body);
-                        using var service = new LicenseNetworkService(new HttpClient(handler));
-                        var result = await service.ValidateLicenseAsync(licenceSeamStoredKey);
-                        Assert(handler.Bodies.Count == 1, $"'{body}': expected one request, sent {handler.Bodies.Count}");
-                        Assert(result.IsValid && result.Status == LicenseStatus.Active,
-                            $"'{body}': a captive-portal 200 downgraded a paying user, got valid={result.IsValid} status={result.Status} message='{result.ErrorMessage}'");
-                        Assert(result.ErrorMessage == "Using cached license (offline)",
-                            $"'{body}': expected the cached-offline verdict, got '{result.ErrorMessage}'");
-                        Assert(service.GetStoredLicenseKey() == licenceSeamStoredKey && service.GetCachedStatus() == LicenseStatus.Active,
-                            $"'{body}': a non-verdict 200 must leave the stored key and its cache alone");
-                    }
-                });
-
-                // Last in the block: it overwrites the cached verdict with Invalid.
-                RunAsync("validate: a real 200 {\"valid\":false} for the stored key still caches Invalid (#2916 guard)", async () =>
-                {
-                    var handler = new LicenceSeamReplyHandler(HttpStatusCode.OK, "{\"valid\":false}");
-                    using var service = new LicenseNetworkService(new HttpClient(handler));
-                    var result = await service.ValidateLicenseAsync(licenceSeamStoredKey);
-                    Assert(!result.IsValid && result.Status == LicenseStatus.Invalid,
-                        $"a real rejection must read as Invalid, got valid={result.IsValid} status={result.Status}");
-                    Assert(service.GetCachedStatus() == LicenseStatus.Invalid,
-                        $"a real rejection of the stored key must be cached, got {service.GetCachedStatus()}");
-                });
-            }
-            finally
-            {
-                SynchronizationContext.SetSynchronizationContext(licenceSeamPreviousContext);
-                using var cleanup = new LicenseNetworkService(new HttpClient());
-                if (cleanup.GetStoredLicenseKey() == licenceSeamStoredKey)
-                {
-                    cleanup.ClearStoredLicense();
-                }
-            }
 
             Run("PushToTalkMonitor and KeyboardShortcutService omit raw keystroke VKs in Release logs (#2)", () =>
             {
@@ -23380,21 +22100,6 @@ internal static class Program
                     TextDeliveryGate.SetSuppressed(previousGate);
                     PutBackWholeClipboard(operatorClipboard);
                 }
-            });
-
-            Run("startup network gating (#3): cloud warmup respects license state", () =>
-            {
-                var cloudMode = new Mode { ProviderType = "cloud", CloudProvider = "hyperwhisper" };
-                var localMode = new Mode { ProviderType = "local" };
-
-                Assert(!TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(cloudMode, hasStoredLicenseKey: false),
-                    "unlicensed installs must not send HyperWhisper Cloud warmup pings");
-                Assert(TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(cloudMode, hasStoredLicenseKey: true),
-                    "licensed HyperWhisper Cloud mode should prewarm connection");
-                Assert(!TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(localMode, hasStoredLicenseKey: true),
-                    "local mode must never prewarm HyperWhisper Cloud");
-                Assert(!TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(null, hasStoredLicenseKey: true),
-                    "null mode must never prewarm HyperWhisper Cloud");
             });
 
             Run("Screen capture removed and JargonService / PromptBuilder wiring (#1)", () =>
@@ -25047,62 +23752,6 @@ internal static class Program
     private const string ExpectedRedactedLoadFailure =
         @"Could not load file or assembly '%LOCALAPPDATA%\Programs\HyperWhisper\HyperWhisper.SharedCore.dll'. An Application Control policy has blocked this file. (0x800711C7)";
 
-    private const string RoutedTestKey = "test-key";
-
-    /// <summary>
-    /// #1421: one call to HyperWhisperRoutedTranscriptionClient with a scripted
-    /// response and an explicit identity. Returns the handler (what went on the
-    /// wire) and the exception, if any.
-    /// </summary>
-    private static async Task<(RoutedCaptureHandler Handler, Exception? Error)> RunRoutedAsync(
-        string sttProvider, string? model, HttpStatusCode status, string body, bool licensed = true)
-    {
-        var handler = new RoutedCaptureHandler(() => new HttpResponseMessage(status)
-        {
-            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
-        });
-        var wav = Path.Combine(Path.GetTempPath(), $"hw-routed-{Guid.NewGuid():N}.wav");
-        await File.WriteAllBytesAsync(wav, new byte[1024]);
-        try
-        {
-            using var client = new HttpClient(handler);
-            await HyperWhisperRoutedTranscriptionClient.TranscribeAsync(
-                client, sttProvider, "Routed test", wav, language: "en", vocabulary: null,
-                CancellationToken.None, model: model, identity: (RoutedTestKey, licensed));
-            return (handler, null);
-        }
-        catch (Exception ex)
-        {
-            return (handler, ex);
-        }
-        finally
-        {
-            File.Delete(wav);
-        }
-    }
-
-    private sealed class RoutedCaptureHandler : HttpMessageHandler
-    {
-        private readonly Func<HttpResponseMessage> _respond;
-        private readonly Dictionary<string, string> _headers = new(StringComparer.OrdinalIgnoreCase);
-        public int Sends;
-        public Uri? LastRequestUri;
-
-        public RoutedCaptureHandler(Func<HttpResponseMessage> respond) => _respond = respond;
-
-        public string? Header(string name) => _headers.TryGetValue(name, out var v) ? v : null;
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Sends++;
-            LastRequestUri = request.RequestUri;
-            _headers.Clear();
-            foreach (var h in request.Headers.Concat(request.Content?.Headers ?? Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>()))
-                _headers[h.Key] = string.Join(",", h.Value);
-            return Task.FromResult(_respond());
-        }
-    }
-
     private const string ScriptedEndpointModel = "m-741";
 
     /// <summary>
@@ -25247,30 +23896,6 @@ internal static class Program
         {
             Content = new StringContent(page.ToJsonString(), System.Text.Encoding.UTF8, "application/json")
         };
-    }
-
-    /// <summary>
-    /// Issue #1036: a <see cref="HyperWhisperCloudService"/> on a fake clock
-    /// (<see cref="Now"/>), whose every HttpClient (the first one and each DNS
-    /// rebuild) sends through one <see cref="StubHandler"/>.
-    /// <see cref="ClientsBuilt"/> counts the factory calls, so 2 means one rebuild.
-    /// </summary>
-    private sealed class CloudConnectionRig : IDisposable
-    {
-        public DateTime Now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        public int ClientsBuilt;
-        public readonly StubHandler Handler;
-        public readonly HyperWhisperCloudService Service;
-
-        public CloudConnectionRig(Func<CancellationToken, Task<HttpResponseMessage>> respond)
-        {
-            Handler = new StubHandler(respond);
-            Service = new HyperWhisperCloudService(
-                () => { Interlocked.Increment(ref ClientsBuilt); return new HttpClient(Handler, disposeHandler: false); },
-                () => Now);
-        }
-
-        public void Dispose() => Service.Dispose();
     }
 
     /// <summary>
@@ -26664,31 +25289,4 @@ internal static class Win32ManifestReader
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool FreeLibrary(IntPtr hModule);
-}
-
-/// <summary>
-/// Issue #738: the scripted server behind LicenseNetworkService's HttpClient seam.
-/// Records every request body it is sent, then answers with the scripted reply,
-/// which may also hang on the token so the client's own timeout fires.
-/// </summary>
-internal sealed class LicenceSeamReplyHandler : HttpMessageHandler
-{
-    private readonly Func<CancellationToken, Task<HttpResponseMessage>> _reply;
-    public readonly List<string> Bodies = new();
-
-    public LicenceSeamReplyHandler(Func<CancellationToken, Task<HttpResponseMessage>> reply) => _reply = reply;
-
-    public LicenceSeamReplyHandler(HttpStatusCode status, string json)
-        : this(_ => Task.FromResult(new HttpResponseMessage(status)
-        {
-            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
-        }))
-    {
-    }
-
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        Bodies.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken));
-        return await _reply(cancellationToken);
-    }
 }
