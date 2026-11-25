@@ -1062,17 +1062,11 @@ public static class LoggingService
     // The HW-Cloud-routed three report true here on purpose (they take no BYOK
     // key); every other provider answers from the shared key map (issue #1220),
     // and None has no slot, so false.
-    private static bool HasTranscriptionProviderKey(ApiKeyService apiKeys, CloudTranscriptionProvider provider) => provider switch
-    {
-        CloudTranscriptionProvider.HyperWhisperCloud => true,
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => true,
-        CloudTranscriptionProvider.GoogleSpeech => true,
-        _ => apiKeys.HasApiKey(provider)
-    };
+    private static bool HasTranscriptionProviderKey(ApiKeyService apiKeys, CloudTranscriptionProvider provider) =>
+        apiKeys.HasApiKey(provider);
 
     private static bool HasPostProcessingProviderKey(ApiKeyService apiKeys, PostProcessingProvider provider) => provider switch
     {
-        PostProcessingProvider.HyperWhisperCloud => true,
         PostProcessingProvider.LocalLlm => false,
         _ => provider.RequiresApiKey() && apiKeys.HasApiKey(provider)
     };

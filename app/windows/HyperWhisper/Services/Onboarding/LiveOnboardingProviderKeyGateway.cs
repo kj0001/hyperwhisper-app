@@ -177,10 +177,6 @@ public sealed class LiveOnboardingProviderKeyGateway : IOnboardingProviderKeyGat
     /// probe passes without a key (or, for HyperWhisper Cloud, because the flow
     /// has a whole step for it).
     /// </summary>
-    internal static readonly IReadOnlyList<CloudTranscriptionProvider> KeylessProviders = new[]
-    {
-        CloudTranscriptionProvider.HyperWhisperCloud,
-        CloudTranscriptionProvider.MicrosoftAzureSpeech,
-        CloudTranscriptionProvider.GoogleSpeech,
-    };
+    internal static readonly IReadOnlyList<CloudTranscriptionProvider> KeylessProviders =
+        Array.Empty<CloudTranscriptionProvider>();
 }

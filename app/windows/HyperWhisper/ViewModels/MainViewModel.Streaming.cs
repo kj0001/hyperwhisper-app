@@ -666,27 +666,7 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnStreamingSessionCompleted(double durationSeconds, double creditsUsed)
     {
-        LoggingService.Info($"Streaming session complete: {durationSeconds:F2}s, {creditsUsed:F2} credits");
-
-        var provider = StreamingTranscriptionProviderExtensions.FromStorageValue(_settingsService.StreamingProvider);
-        if (provider != StreamingTranscriptionProvider.HyperWhisperCloud)
-            return;
-
-        var cloudManager = HyperWhisperCloudManager.Instance;
-        cloudManager.InvalidateCache();
-        _ = RefreshHyperWhisperCloudCreditsAfterStreamingAsync();
-    }
-
-    private static async Task RefreshHyperWhisperCloudCreditsAfterStreamingAsync()
-    {
-        try
-        {
-            await HyperWhisperCloudManager.Instance.RefreshCreditsAsync();
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Warn($"Streaming credit refresh failed: {ex.Message}");
-        }
+        LoggingService.Info($"Streaming session complete: {durationSeconds:F2}s");
     }
 
     private async Task CleanupStreamingSessionAsync()

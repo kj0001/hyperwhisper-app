@@ -34,13 +34,13 @@ public partial class SettingsService
     public string StreamingProvider
     {
         get => string.IsNullOrWhiteSpace(_settings.StreamingProvider)
-            ? Models.StreamingTranscriptionProvider.HyperWhisperCloud.StorageValue()
+            ? "hyperwhisperCloud"
             : _settings.StreamingProvider!;
         set
         {
             var normalized = Models.StreamingTranscriptionProviderExtensions.IsValidStorageValue(value)
                 ? value
-                : Models.StreamingTranscriptionProvider.HyperWhisperCloud.StorageValue();
+                : "hyperwhisperCloud";
 
             if (_settings.StreamingProvider != normalized)
             {

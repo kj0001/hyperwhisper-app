@@ -57,23 +57,8 @@ public sealed class WindowsDeviceIdentityProvider : PlatformContracts.IDeviceIde
 {
     public PlatformContracts.PlatformResult<PlatformContracts.DeviceIdentity> GetDeviceIdentity()
     {
-        try
-        {
-            var service = DeviceIdService.Instance;
-            return PlatformContracts.PlatformResult<PlatformContracts.DeviceIdentity>.Success(
-                new PlatformContracts.DeviceIdentity(service.GetDeviceId(), service.Source switch
-                {
-                    DeviceIdSource.WindowsRegistry => PlatformContracts.DeviceIdentitySource.PlatformMachineId,
-                    DeviceIdSource.StoredFallback => PlatformContracts.DeviceIdentitySource.StoredFallback,
-                    DeviceIdSource.GeneratedFallback => PlatformContracts.DeviceIdentitySource.GeneratedFallback,
-                    _ => PlatformContracts.DeviceIdentitySource.Unknown
-                }));
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Error("WindowsDeviceIdentityProvider: identity lookup failed", ex);
-            return PlatformContracts.PlatformResult<PlatformContracts.DeviceIdentity>.Failure(
-                "device_identity.unavailable", "Windows could not provide the device identity.");
-        }
+        return PlatformContracts.PlatformResult<PlatformContracts.DeviceIdentity>.Failure(
+            "device_identity.disabled",
+            "Hardware device identity is disabled in this build.");
     }
 }

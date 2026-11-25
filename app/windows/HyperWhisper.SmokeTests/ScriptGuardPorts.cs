@@ -536,13 +536,11 @@ internal static class ScriptGuardPorts
             }
         });
 
-        run("streaming: only HyperWhisper Cloud streams without the user's own API key (#830)", () =>
+        run("streaming: every remaining streaming provider requires an API key (#830)", () =>
         {
-            // A direct provider marked keyless would start a session with no key and
-            // fail on the wire; Cloud marked keyed would ask a subscriber for a key.
             foreach (var provider in Enum.GetValues<StreamingTranscriptionProvider>())
             {
-                Assert(provider.RequiresApiKey() == (provider != StreamingTranscriptionProvider.HyperWhisperCloud),
+                Assert(provider.RequiresApiKey(),
                     $"{provider}: RequiresApiKey() is {provider.RequiresApiKey()}");
             }
         });
@@ -945,7 +943,6 @@ internal static class ScriptGuardPorts
                 }
                 // No BYOK key, and never the machine's Credential Manager.
                 vm.ApiKeyServiceOverride = new ApiKeyService(new Program.InMemoryCredentialBackend());
-                vm.CloudAccountKeyPresentOverride = () => false;
                 vm.DictationRecorderOverride = recorder;
                 vm.TranscribeRecordingOverride = (audioPath, mode) =>
                 {

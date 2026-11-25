@@ -427,23 +427,6 @@ public static class CloudTranscriptionModels
     };
 
     // =========================================================================
-    // HYPERWHISPER CLOUD
-    // No model rows in the library — HyperWhisper Cloud is a routing service,
-    // not a model. The sentinel below keeps GetById / GetDefault stable for
-    // call sites that still resolve `(HyperWhisperCloud, "default")` from
-    // persisted modes (see Mode.CloudTranscriptionModel).
-    // =========================================================================
-
-    private static readonly CloudTranscriptionModel HyperWhisperCloudSentinel = new()
-    {
-        Id = "default",
-        DisplayNameOverride = "Default",
-        Description = "HyperWhisper Cloud (Deepgram Nova-3 default tier)",
-        Provider = CloudTranscriptionProvider.HyperWhisperCloud,
-        IsPopular = true
-    };
-
-    // =========================================================================
     // GROK MODELS
     // xAI Grok speech-to-text, sent as the `model` field — the endpoint took no
     // such parameter before 2026-09-19, which is why this entry carried an
@@ -467,60 +450,6 @@ public static class CloudTranscriptionModels
             Description = "SpaceXAI's speech-to-text model — auto-detects the language and follows a mid-recording switch.",
             Provider = CloudTranscriptionProvider.Grok,
             PricePerMinute = 0.0016667m,
-            IsPopular = true
-        }
-    };
-
-    // =========================================================================
-    // MICROSOFT AZURE SPEECH (HyperWhisper Cloud only)
-    // =========================================================================
-
-    /// <summary>
-    /// Microsoft MAI-Transcribe 2 and 1.5 via Azure Speech / Foundry. Routed
-    /// through the Fly /transcribe service with X-STT-Provider: azure-mai and
-    /// X-STT-Model set to the id below. The two models do NOT share a language
-    /// set — v2 documents 60 codes to 1.5's 42 — so the Mode editor's language
-    /// picker narrows per model, not per tier; see ModeEditorWindow.xaml.cs.
-    /// </summary>
-    public static readonly CloudTranscriptionModel[] MicrosoftAzureSpeech = new[]
-    {
-        new CloudTranscriptionModel
-        {
-            Id = "mai-transcribe-2",
-            Description = "Microsoft's 60-language transcription model with contextual biasing.",
-            Provider = CloudTranscriptionProvider.MicrosoftAzureSpeech,
-            // $0.10 per hour of audio — a limited-time offer Microsoft has
-            // announced through the end of the year. Revisit alongside
-            // AZURE_MAI_COST_PER_AUDIO_MINUTE in the Cloud backend.
-            PricePerMinute = 0.10m / 60m,
-            IsPopular = true
-        },
-        new CloudTranscriptionModel
-        {
-            Id = "mai-transcribe-1.5",
-            Description = "Microsoft's 42-language transcription model with contextual biasing.",
-            Provider = CloudTranscriptionProvider.MicrosoftAzureSpeech,
-            PricePerMinute = 0.006m,
-            IsPopular = true
-        }
-    };
-
-    // =========================================================================
-    // GOOGLE CLOUD SPEECH (HyperWhisper Cloud only)
-    // =========================================================================
-
-    /// <summary>
-    /// Google Cloud Speech-to-Text V2 Chirp 3. Routed through the Fly
-    /// /transcribe service with X-STT-Provider: google-chirp.
-    /// </summary>
-    public static readonly CloudTranscriptionModel[] GoogleSpeech = new[]
-    {
-        new CloudTranscriptionModel
-        {
-            Id = "chirp_3",
-            Description = "Google's latest multilingual speech model with phrase adaptation.",
-            Provider = CloudTranscriptionProvider.GoogleSpeech,
-            PricePerMinute = 0.016m,
             IsPopular = true
         }
     };
@@ -579,8 +508,6 @@ public static class CloudTranscriptionModels
             .Concat(GeminiTranscribe)
             .Concat(Meta)
             .Concat(Grok)
-            .Concat(MicrosoftAzureSpeech)
-            .Concat(GoogleSpeech)
             .ToArray();
 
     /// <summary>
@@ -599,10 +526,7 @@ public static class CloudTranscriptionModels
             CloudTranscriptionProvider.Gemini => Gemini,
             CloudTranscriptionProvider.GeminiTranscribe => GeminiTranscribe,
             CloudTranscriptionProvider.Meta => Meta,
-            CloudTranscriptionProvider.HyperWhisperCloud => new[] { HyperWhisperCloudSentinel },
             CloudTranscriptionProvider.Grok => Grok,
-            CloudTranscriptionProvider.MicrosoftAzureSpeech => MicrosoftAzureSpeech,
-            CloudTranscriptionProvider.GoogleSpeech => GoogleSpeech,
             _ => Array.Empty<CloudTranscriptionModel>()
         };
 
@@ -765,7 +689,6 @@ public static class CloudTranscriptionModels
         CloudTranscriptionProvider.GeminiTranscribe => "geminiTranscribe",
         CloudTranscriptionProvider.Meta => "metaMuse",
         CloudTranscriptionProvider.Grok => "grokStt",
-        CloudTranscriptionProvider.MicrosoftAzureSpeech => "azureMaiTranscribe",
         _ => null
     };
 
@@ -783,11 +706,6 @@ public static class CloudTranscriptionModels
     /// depending on which head served the request (issue #580).
     /// <c>shared-conformance/default-model-vectors.json</c> pins the answer and
     /// every head replays it through its own resolver.
-    ///
-    /// A provider with no catalog entry keeps a pinned id; see
-    /// <see cref="CatalogEntryId"/> for why those two exist. The trailing
-    /// <c>FirstOrDefault</c> is unchanged: it keeps the method total for a
-    /// provider whose catalog default is not a row of this registry.
     /// </remarks>
     public static CloudTranscriptionModel? GetDefault(CloudTranscriptionProvider provider)
     {
@@ -808,11 +726,6 @@ public static class CloudTranscriptionModels
         var catalogEntryId = CatalogEntryId(provider);
         return catalogEntryId is not null
             ? HyperwhisperCoreMethods.CloudSttDefaultModelId(catalogEntryId)
-            : provider switch
-            {
-                CloudTranscriptionProvider.HyperWhisperCloud => HyperWhisperCloudSentinel.Id,
-                CloudTranscriptionProvider.GoogleSpeech => "chirp_3",
-                _ => null
-            };
+            : null;
     }
 }

@@ -26,10 +26,9 @@ public class PostProcessingVisibilityConverter : IValueConverter
             : !string.IsNullOrEmpty(mode.LanguageModel);
 
         // Show only if post-processing is enabled (not 0=off) and has a provider/model
-        // HyperWhisper Cloud and custom endpoints don't require a language model selection
+        // Custom endpoints don't require a built-in language model selection
         bool isEnabled = mode.PostProcessingMode != 0
-            && (provider == PostProcessingProvider.HyperWhisperCloud
-                || CustomPostProcessingEndpoint.IsCustomProviderString(mode.PostProcessingProvider)
+            && (CustomPostProcessingEndpoint.IsCustomProviderString(mode.PostProcessingProvider)
                 || hasModel);
         return isEnabled ? Visibility.Visible : Visibility.Collapsed;
     }

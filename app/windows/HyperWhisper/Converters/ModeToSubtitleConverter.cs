@@ -27,12 +27,6 @@ public class ModeToSubtitleConverter : IValueConverter
             var provider = CloudTranscriptionProviderExtensions.FromModeCloudProvider(mode.CloudProvider);
             var providerName = provider.GetDisplayName();
 
-            // HyperWhisper Cloud: just show provider name (only one model)
-            if (provider == CloudTranscriptionProvider.HyperWhisperCloud)
-            {
-                return providerName;
-            }
-
             // Other providers: show "Provider · Model"
             var model = CloudTranscriptionModels.GetById(mode.CloudTranscriptionModel, provider);
             if (model != null)

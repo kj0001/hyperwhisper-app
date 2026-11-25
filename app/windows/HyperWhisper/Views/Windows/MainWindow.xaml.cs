@@ -202,16 +202,6 @@ public partial class MainWindow : Window
             }
         };
 
-        // FOREGROUND KEEPALIVE
-        // Run a periodic /warmup ping while the app is the active window so
-        // the pooled HTTP/2 connection to HyperWhisper Cloud stays warm
-        // across long idle gaps. Pause when the app loses focus to avoid
-        // background traffic. Note: WPF's Deactivated also fires when an
-        // in-app sub-window (e.g., Settings) takes focus — acceptable, the
-        // ticker just resumes on the next Activated.
-        Activated += (s, e) => _viewModel.StartCloudKeepalive();
-        Deactivated += (s, e) => _viewModel.StopCloudKeepalive();
-
         // WINDOW CLOSING BEHAVIOR
         // Respects MinimizeToTray setting:
         // - When enabled: Cancel close and hide to system tray

@@ -270,12 +270,9 @@ public class CloudProviderHealthService : IDisposable
         string apiKey,
         CancellationToken cancellationToken = default)
     {
-        // Routed / HW-Cloud providers need no API key and are always reachable.
-        if (provider is CloudTranscriptionProvider.HyperWhisperCloud
-            or CloudTranscriptionProvider.MicrosoftAzureSpeech
-            or CloudTranscriptionProvider.GoogleSpeech)
+        if (provider == CloudTranscriptionProvider.None)
         {
-            return ProviderHealth.Healthy;
+            return ProviderHealth.Unknown;
         }
 
         var trimmed = apiKey?.Trim() ?? "";
@@ -465,13 +462,9 @@ public class CloudProviderHealthService : IDisposable
         // post-processing probe path below is untouched (out of FFI scope).
         // TODO-verify (Windows/CI): Rust shared-core swap.
 
-        // Routed / HW-Cloud providers need no API key and are always reachable
-        // (mirrors macOS M3-B.4 short-circuit + the core's None endpoint).
-        if (provider is CloudTranscriptionProvider.HyperWhisperCloud
-            or CloudTranscriptionProvider.MicrosoftAzureSpeech
-            or CloudTranscriptionProvider.GoogleSpeech)
+        if (provider == CloudTranscriptionProvider.None)
         {
-            return ProviderHealth.Healthy;
+            return ProviderHealth.Unknown;
         }
 
         var hwProvider = RustCoreMapping.HwProviderFor(provider);

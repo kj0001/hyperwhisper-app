@@ -156,7 +156,8 @@ public partial class ModeEditorWindow
 
             var ppProvider = PostProcessingProviderExtensions.NormalizeStorageValue(mode.PostProcessingProvider);
             var isLegacyHwCloudPp = string.IsNullOrEmpty(ppProvider)
-                || ppProvider == PostProcessingProvider.HyperWhisperCloud.ToStringValue();
+                || string.Equals(ppProvider, "hyperwhispercloud", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(ppProvider, "hyperwhisper", StringComparison.OrdinalIgnoreCase);
             var ppEnabled = mode.PostProcessingMode != 0 && !isLegacyHwCloudPp;
 
             PostProcessingCheck.IsChecked = ppEnabled;

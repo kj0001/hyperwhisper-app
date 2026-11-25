@@ -1262,7 +1262,7 @@ public partial class ModeEditorWindow : Window
                 _mode.CloudTranscriptionModel = cloudItem.Tag?.ToString() ?? "whisper-1";
             }
             _mode.CloudTranscriptionDomain = null;
-            _mode.CloudAccuracyTier = null;
+            _mode.CloudAccuracyTier = string.Empty;
 
             // Save Gemini custom prompt
             var geminiPromptText = GeminiCustomPromptBox.Text?.Trim() ?? "";
@@ -1446,7 +1446,7 @@ public partial class ModeEditorWindow : Window
     /// </summary>
     internal static bool ByokVocabularyUnsupported(CloudTranscriptionProvider provider, string? modelId)
     {
-        if (provider is CloudTranscriptionProvider.None or CloudTranscriptionProvider.HyperWhisperCloud)
+        if (provider == CloudTranscriptionProvider.None)
             return false;
         if (string.IsNullOrEmpty(modelId))
             return false;

@@ -20,10 +20,6 @@ public class PostProcessingDisplayConverter : IValueConverter
 
         var provider = PostProcessingProviderExtensions.FromString(mode.PostProcessingProvider);
 
-        // Check if using HyperWhisper Cloud post-processing
-        if (provider == PostProcessingProvider.HyperWhisperCloud)
-            return "HyperWhisper";
-
         // Check if using a custom endpoint
         if (CustomPostProcessingEndpoint.IsCustomProviderString(mode.PostProcessingProvider))
         {

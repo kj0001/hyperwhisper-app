@@ -238,10 +238,7 @@ internal sealed class LiveProtocolStreamingStrategy : IStreamingProviderStrategy
             webSocket.Options.AddSubProtocol(subProtocol);
         }
 
-        if (Provider == LiveTranscriptionProvider.HyperWhisperCloud)
-        {
-            ClientInfoHeaders.Apply(webSocket);
-        }
+        // No HyperWhisper Cloud client headers; BYOK sockets only.
     }
 
     public IReadOnlyList<(byte[] Data, WebSocketMessageType Type)> GetStartMessages(StreamingSessionConfig config)
@@ -353,16 +350,13 @@ internal sealed class LiveProtocolStreamingStrategy : IStreamingProviderStrategy
     ) => new(
         provider,
         ApiKey: config.ApiKey,
-        LicenseKey: config.LicenseKey,
-        DeviceId: config.DeviceId,
+        LicenseKey: null,
+        DeviceId: null,
         Language: config.Language,
         Vocabulary: config.Vocabulary,
         Model: config.Model,
         FastFormatting: config.FastFormatting,
-        // HyperWhisper Cloud only: the core derives the relay route
-        // (/ws/streaming-{sttProvider}) and the auto-detect vocabulary gate
-        // from it. Every other provider ignores it.
-        CloudTier: config.CloudTier
+        CloudTier: null
     );
 
     private static StreamingStopAction Action(LiveStopAction action) => action switch
@@ -443,6 +437,6 @@ internal sealed class LiveProtocolStreamingStrategy : IStreamingProviderStrategy
         StreamingTranscriptionProvider.OpenAI => LiveTranscriptionProvider.OpenAi,
         StreamingTranscriptionProvider.Xai => LiveTranscriptionProvider.Grok,
         StreamingTranscriptionProvider.GeminiTranscribe => LiveTranscriptionProvider.GeminiTranscribe,
-        _ => LiveTranscriptionProvider.HyperWhisperCloud
+        _ => throw new NotSupportedException($"Unsupported streaming provider: {provider}")
     };
 }

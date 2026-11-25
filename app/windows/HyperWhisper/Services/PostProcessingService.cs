@@ -38,18 +38,6 @@ public class PostProcessingService : IDisposable
 
     private readonly HttpClient _httpClient;
 
-    // ONE HyperWhisper Cloud client for every post-process call in the process,
-    // never disposed. Building a new HyperWhisperCloudService per call built a
-    // new SocketsHttpHandler, so each dictation paid a fresh TCP+TLS handshake
-    // (35-50 ms warm DNS, ~305 ms cold) and the dispose threw 4 first-chance
-    // IOExceptions + 1 TaskCanceledException inside the runtime (#981). Shared
-    // across instances because the Local API builds a PostProcessingService per
-    // request. Safe to share: PostProcessAsync reads its credentials per request
-    // and touches no per-call state, and its handler recycles pooled connections
-    // every 10 min, so a DNS change is still picked up.
-    private static readonly Lazy<HyperWhisperCloudService> SharedCloudService =
-        new(() => new HyperWhisperCloudService(), LazyThreadSafetyMode.ExecutionAndPublication);
-
     private readonly LocalLlmModelService _localLlmModelService;
     private readonly LocalLlmService _localLlmService;
     private bool _disposed;
@@ -248,103 +236,11 @@ public class PostProcessingService : IDisposable
             return PostProcessingResult.Skipped(text);
         }
 
-        // HyperWhisper Cloud uses license/device auth, not API keys — handle separately
-        if (provider == PostProcessingProvider.HyperWhisperCloud)
+        // HyperWhisper Cloud post-processing removed (legacy modes map to None and skip cleanly)
+        if (provider == PostProcessingProvider.None && !isCustomEndpoint)
         {
-            try
-            {
-                var cloudVocabulary = VocabularyService.Instance.GetVocabularyWords(100);
-                var cloudSystemPrompt = PromptBuilder.SystemPrompt(mode, applicationContext);
-                if (string.IsNullOrEmpty(cloudSystemPrompt))
-                {
-                    LoggingService.Debug("PostProcessingService: Empty system prompt, skipping");
-                    return PostProcessingResult.Skipped(text);
-                }
-                var cloudSystemInfo = PromptBuilder.SystemInfo(mode, cloudVocabulary, applicationContext);
-
-                // The transcript travels in `text`, ONCE. It used to be sent twice
-                // here — again inside `prompt`, wrapped in --TRANSCRIPT-- markers —
-                // which macOS never did. That is a different input-token count, a
-                // different credit cost and a different prompt for the same
-                // recording (#282). The hosted route builds its own provider call
-                // from `prompt`, so `prompt` carries only the two prompt halves.
-                var fullPrompt = $"{cloudSystemPrompt}\n\n{cloudSystemInfo}";
-
-                LoggingService.Info("PostProcessingService: Processing with HyperWhisper Cloud");
-
-                var cloudService = SharedCloudService.Value;
-                var cloudModel = CloudPostProcessingModelExtensions.FromString(mode.CloudPostProcessingModel);
-                var response = await cloudService.PostProcessAsync(
-                    text,
-                    fullPrompt,
-                    cloudModel.ToLlmProviderHeader(),
-                    cloudModel.ToLlmModelHeader(),
-                    cancellationToken);
-                // The hosted /post-process contract already validates provider termination
-                // and strips wrapper markers before returning `corrected`. Do not apply the
-                // provider-native wrapper contract a second time on this normalized response.
-                if (string.IsNullOrWhiteSpace(response))
-                {
-                    LoggingService.Warn("PostProcessingService: Empty cloud response; keeping original transcription");
-                    return PostProcessingResult.Skipped(text);
-                }
-                LoggingService.Info($"PostProcessingService: Successfully processed ({text.Length} -> {response.Length} chars)");
-                // Record what RAN, not what the Mode stored (#314). This branch
-                // never reads `mode.LanguageModel` — the engine comes from
-                // `mode.CloudPostProcessingModel` — so echoing `LanguageModel`
-                // reported an unrelated field, not just a stale one. The model is
-                // the `X-LLM-Model` value sent above, falling back to the catalog
-                // model id when the catalog does not override it.
-                //
-                // DELIBERATELY NOT the `X-LLM-Provider` RESPONSE header. The
-                // hosted route runs its own server-side fallback (a 5xx on the
-                // primary provider, or a prompt-leakage reroute) and names the
-                // pair that answered in that header — but the value is
-                // `servedLLMName(provider, model)`, a provider-prefixed DISPLAY
-                // label ("groq-gpt-oss-120b" for the model id
-                // "openai/gpt-oss-120b"), and it is set on EVERY 200, not only
-                // after a reroute. Reporting it here would make `model` speak two
-                // vocabularies — a catalog model id for BYOK/local/custom runs, a
-                // backend display label for hosted ones — and a client that feeds
-                // `model` back into a mode (the Local API `/modes` backend takes it unvalidated)
-                // would write an id `LanguageModelInfo.GetById` cannot resolve.
-                // Until the backend exposes the served MODEL ID separately, a
-                // backend-side reroute stays invisible here; `openapi.yaml` says so.
-                return PostProcessingResult.Applied(
-                    response,
-                    PostProcessingProvider.HyperWhisperCloud.ToStringValue(),
-                    cloudModel.ToLlmModelHeader() ?? cloudModel.ModelId);
-            }
-            catch (OperationCanceledException)
-            {
-                LoggingService.Info("PostProcessingService: Operation cancelled");
-                return PostProcessingResult.Skipped(text);
-            }
-            catch (TranscriptionException ex) when (ex.Code == TranscriptionErrorCode.CloudAccountRequired)
-            {
-                // No account key. Still a graceful skip in-app, but flagged so
-                // the Local API can refuse with MISSING_API_KEY (issue #1487).
-                LoggingService.Warn("PostProcessingService: HyperWhisper Cloud skipped, no account key");
-                WarningOccurred?.Invoke(this, new ErrorToastEventArgs(
-                    ex.GetUserMessage(),
-                    showSettingsButton: true,
-                    settingsSection: "Cloud"));
-                return PostProcessingResult.AccountKeyMissing(text);
-            }
-            catch (HttpRequestException ex)
-            {
-                LoggingService.Error($"PostProcessingService: HTTP error: {ex.Message}");
-                WarningOccurred?.Invoke(this, new ErrorToastEventArgs(
-                    Loc.S("postprocessing.error.failed")));
-                return PostProcessingResult.Skipped(text);
-            }
-            catch (Exception ex)
-            {
-                LoggingService.Error($"PostProcessingService: Failed: {ex.Message}");
-                WarningOccurred?.Invoke(this, new ErrorToastEventArgs(
-                    Loc.S("postprocessing.error.failed")));
-                return PostProcessingResult.Skipped(text);
-            }
+            LoggingService.Debug("PostProcessingService: No BYOK/local provider configured, skipping");
+            return PostProcessingResult.Skipped(text);
         }
 
         // For built-in providers, get the API key and model

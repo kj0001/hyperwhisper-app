@@ -196,13 +196,8 @@ public partial class StreamingSettingsPage : Page
         }
     }
 
-    private static StreamingTranscriptionProvider EffectiveByokProvider(string? storageValue)
-    {
-        var parsed = StreamingTranscriptionProviderExtensions.FromStorageValue(storageValue);
-        return parsed == StreamingTranscriptionProvider.HyperWhisperCloud
-            ? StreamingTranscriptionProvider.Deepgram
-            : parsed;
-    }
+    private static StreamingTranscriptionProvider EffectiveByokProvider(string? storageValue) =>
+        StreamingTranscriptionProviderExtensions.FromStorageValue(storageValue);
 
     private void UpdateProviderPanels()
     {
@@ -327,7 +322,6 @@ public partial class StreamingSettingsPage : Page
     internal static string? LanguageCatalogEntryId(StreamingTranscriptionProvider provider, string? cloudTier)
         => provider switch
         {
-            StreamingTranscriptionProvider.HyperWhisperCloud => SettingsService.NormalizeStreamingCloudTier(cloudTier),
             StreamingTranscriptionProvider.Deepgram => "deepgramNova3",
             StreamingTranscriptionProvider.ElevenLabs => "elevenLabsScribeV2",
             StreamingTranscriptionProvider.OpenAI => "openaiWhisper",

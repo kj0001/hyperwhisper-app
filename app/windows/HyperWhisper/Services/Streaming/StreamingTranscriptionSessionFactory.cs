@@ -16,7 +16,13 @@ public static class StreamingTranscriptionSessionFactory
     public static Result<StreamingTranscriptionClient> Create(IReadOnlyCollection<string> vocabularyWords)
     {
         var settings = SettingsService.Instance;
-        var provider = StreamingTranscriptionProviderExtensions.FromStorageValue(settings.StreamingProvider);
+        if (!StreamingTranscriptionProviderExtensions.TryFromStorageValue(settings.StreamingProvider, out var provider))
+        {
+            return Result<StreamingTranscriptionClient>.Failure(
+                "Select a BYOK streaming provider and configure its API key in Settings > Streaming."
+            );
+        }
+
         var apiKeyType = GetApiKeyType(provider);
         var postProcessingApiKeyType = GetPostProcessingApiKeyType(provider);
         var apiKey = GetApiKey(provider);
@@ -29,8 +35,8 @@ public static class StreamingTranscriptionSessionFactory
         }
 
         var config = new StreamingSessionConfig(
-            LicenseKey: LicenseManager.Instance.GetStoredLicenseKey(),
-            DeviceId: DeviceIdService.Instance.GetDeviceId(),
+            LicenseKey: null,
+            DeviceId: null,
             Language: settings.StreamingLanguage,
             Vocabulary: BuildVocabulary(provider, vocabularyWords),
             ApiKey: apiKey,
@@ -40,8 +46,7 @@ public static class StreamingTranscriptionSessionFactory
             Model: provider == StreamingTranscriptionProvider.Deepgram ? settings.StreamingDeepgramModel : null,
             FastFormatting: settings.StreamingFastFormatting,
             RemoveFillerWords: settings.RemoveFillerWords,
-            // Read for HyperWhisper Cloud only; the core ignores it elsewhere.
-            CloudTier: settings.StreamingCloudTier
+            CloudTier: null
         );
 
         return Result<StreamingTranscriptionClient>.Success(
