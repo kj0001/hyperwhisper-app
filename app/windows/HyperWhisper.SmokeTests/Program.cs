@@ -1635,8 +1635,7 @@ internal static class Program
                     TextFormat = "text",
                     AppType = AppType.WorkMessaging,
                     AppTypeConfidence = "strong",
-                    AppTypeSource = "processName",
-                    ScreenOCRText = "visible text"
+                    AppTypeSource = "processName"
                 };
 
                 var portable = WindowsApplicationContextMapper.ToPlatform(windows);
@@ -1644,7 +1643,7 @@ internal static class Program
                 Assert(portable.BrowserHost == windows.BrowserHost, "browser host was lost");
                 Assert(portable.FocusedContent == windows.FocusedContent, "focused content was lost");
                 Assert(portable.AppType == "work_messaging", "app type was not canonicalized");
-                Assert(portable.ScreenOcrText == windows.ScreenOCRText, "OCR text was lost");
+                Assert(string.IsNullOrEmpty(portable.ScreenOcrText), "screen OCR text must be omitted on Windows");
                 Assert(
                     typeof(PlatformContracts.IApplicationContextProvider)
                         .IsAssignableFrom(typeof(ApplicationContextService)),
@@ -2187,8 +2186,6 @@ internal static class Program
 
                 Assert(typeof(PlatformContracts.IGpuInfoProvider)
                     .IsAssignableFrom(typeof(WindowsGpuInfoProvider)), "GPU adapter contract missing");
-                Assert(typeof(PlatformContracts.IScreenOcrService)
-                    .IsAssignableFrom(typeof(ScreenOCRCaptureService)), "screen OCR contract missing");
                 Assert(typeof(PlatformContracts.IAppPaths)
                     .IsAssignableFrom(typeof(WindowsAppPaths)), "app paths contract missing");
                 Assert(typeof(PlatformContracts.IDeviceIdentityProvider)
@@ -2724,28 +2721,6 @@ internal static class Program
                 Assert(AsyncBodyCalls(loadForRecording, Vm("LoadModelAsync"))
                        && AsyncBodyCalls(loadForRecording, Vm("IsLocalProviderReady", typeof(Mode))),
                     "LoadModelForRecordingAsync no longer re-checks the engine after the load");
-
-                // The recording can move to another mode during the load: the screen
-                // OCR captured for an OCR mode must not reach a mode without it.
-                var dropOcr = Vm("DropScreenOcrTheModeDoesNotWant");
-                Assert(AsyncBodyCalls(Vm("StartRecordingAsync"), dropOcr),
-                    "StartRecordingAsync no longer drops the screen OCR a mode switch during the load leaves behind");
-                var contextField = typeof(MainViewModel).GetField("_capturedApplicationContext", all)
-                    ?? throw new InvalidOperationException("MainViewModel._capturedApplicationContext is gone; update this test");
-                var vm = (MainViewModel)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(MainViewModel));
-                string? OcrAfterSwitchTo(Mode mode)
-                {
-                    var context = new Services.ApplicationContext { ScreenOCRText = "secret on screen" };
-                    contextField.SetValue(vm, context);
-                    dropOcr.Invoke(vm, new object[] { mode });
-                    return context.ScreenOCRText;
-                }
-                Assert(OcrAfterSwitchTo(new Mode { EnableScreenOCR = false, PostProcessingMode = 1 }) == null,
-                    "a mode without screen OCR kept the previous mode's OCR text");
-                Assert(OcrAfterSwitchTo(new Mode { EnableScreenOCR = true, PostProcessingMode = 0 }) == null,
-                    "a mode with no post-processing kept the previous mode's OCR text");
-                Assert(OcrAfterSwitchTo(new Mode { EnableScreenOCR = true, PostProcessingMode = 1 }) == null,
-                    "Screen OCR is permanently disabled and must always drop residual OCR text (#1)");
             });
 
             // #1809. A Whisper load for mode A that ends after a switch to mode B
@@ -27752,17 +27727,13 @@ internal static class Program
                     "null mode must never prewarm HyperWhisper Cloud");
             });
 
-            Run("Screen OCR kill-switch and JargonService / PromptBuilder wiring (#1)", () =>
+            Run("Screen capture removed and JargonService / PromptBuilder wiring (#1)", () =>
             {
-                // 1. Screen OCR service always returns null and PromptBuilder never emits <SCREEN_CONTEXT>
-                var ocr = ScreenOCRCaptureService.Instance.CaptureAndOcrAsync().GetAwaiter().GetResult();
-                Assert(ocr == null, $"ScreenOCRCaptureService must return null when disabled, got '{ocr}'");
-
-                var ctxWithOcr = new Services.ApplicationContext { ScreenOCRText = "secret on screen" };
-                var info = PromptBuilder.SystemInfo(new Mode { Preset = "hyper" }, applicationContext: ctxWithOcr);
-                Assert(!info.Contains("<SCREEN_CONTEXT>", StringComparison.Ordinal)
-                       && !info.Contains("secret on screen", StringComparison.Ordinal),
-                    "PromptBuilder.SystemInfo must never emit <SCREEN_CONTEXT> when Screen OCR is disabled");
+                // 1. PromptBuilder never emits <SCREEN_CONTEXT>
+                var ctx = new Services.ApplicationContext { ProcessName = "notepad", WindowTitle = "Notes" };
+                var info = PromptBuilder.SystemInfo(new Mode { Preset = "hyper" }, applicationContext: ctx);
+                Assert(!info.Contains("<SCREEN_CONTEXT>", StringComparison.Ordinal),
+                    "PromptBuilder.SystemInfo must never emit <SCREEN_CONTEXT>");
 
                 // 2. Sanitization strips prompt delimiters and angle-bracket tags while capping at MaxCharacters
                 var dirty = "--TRANSCRIPT-- <<CLEANED>> <script>alert(1)</script> --ENDTRANSCRIPT-- <<END>> \"see sharp\" -> C#\n"

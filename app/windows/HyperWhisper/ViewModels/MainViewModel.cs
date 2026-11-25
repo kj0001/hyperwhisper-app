@@ -2243,11 +2243,6 @@ public partial class MainViewModel : ViewModelBase
                 return;
             }
 
-            if (!ReferenceEquals(readyMode, recordingMode))
-            {
-                DropScreenOcrTheModeDoesNotWant(readyMode);
-            }
-
             recordingMode = readyMode;
             _activeRecordingMode = readyMode;
         }
@@ -2386,16 +2381,9 @@ public partial class MainViewModel : ViewModelBase
     // =========================================================================
 
     /// <summary>
-    /// Captures the foreground application context and, when the mode asks for it,
-    /// the screen OCR text. Leaves the context null when
+    /// Captures the foreground application context. Leaves the context null when
     /// HyperWhisper.AppClassification cannot load on this machine.
     /// </summary>
-    /// <remarks>
-    /// The screen OCR text is parked on <c>ApplicationContext</c>, so it is
-    /// captured only when that type can load. The stage slug says whether this
-    /// recording asked for OCR, so a skipped OCR capture is visible in the log and
-    /// in Sentry rather than silent.
-    /// </remarks>
     private Task TryCaptureApplicationContextAsync(Mode recordingMode)
     {
         // The context belongs to THIS recording. Clear the previous one before the
@@ -2408,18 +2396,14 @@ public partial class MainViewModel : ViewModelBase
             return Task.CompletedTask;
         }
 
-        // Screen OCR is permanently disabled (#1).
-        const bool wantsScreenOcr = false;
-        var stage = wantsScreenOcr ? "start_recording_with_screen_ocr" : "start_recording";
-
         return OptionalAssemblyGuard.TryRunAsync(
             OptionalAssemblyGuard.AppClassificationAssembly,
-            stage,
+            "start_recording",
             () => CaptureApplicationContextAsync(recordingMode));
     }
 
     /// <summary>
-    /// The same guard for a flow that captures no screen OCR text. Streaming used
+    /// The same guard for a flow that captures no application context. Streaming used
     /// to call <c>GatherContext</c> directly and had the same crash.
     /// </summary>
     private void TryCaptureApplicationContext(string stage)
@@ -2457,17 +2441,6 @@ public partial class MainViewModel : ViewModelBase
     {
         CaptureApplicationContext();
         return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Drops any Screen OCR text unconditionally because Screen OCR is disabled (#1).
-    /// </summary>
-    private void DropScreenOcrTheModeDoesNotWant(Mode recordingMode)
-    {
-        if (_capturedApplicationContext?.ScreenOCRText == null) return;
-
-        LoggingService.Info("StartRecordingAsync: Screen OCR is disabled; dropped residual OCR text");
-        _capturedApplicationContext.ScreenOCRText = null;
     }
 
     private void CleanupFailedRecordingStart()

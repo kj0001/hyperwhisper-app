@@ -82,9 +82,6 @@ public class ApplicationContext
 
     /// <summary>Signal that produced AppType: processName, title, focusedElement, default.</summary>
     public string AppTypeSource { get; init; } = "default";
-
-    /// <summary>OCR-extracted text from the screen at recording start. Set externally after GatherContext().</summary>
-    public string? ScreenOCRText { get; set; }
 }
 
 // =========================================================================

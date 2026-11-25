@@ -23,7 +23,7 @@ internal static class WindowsApplicationContextMapper
             AppType = context.AppType.ToPromptValue(),
             AppTypeConfidence = context.AppTypeConfidence,
             AppTypeSource = context.AppTypeSource,
-            ScreenOcrText = context.ScreenOCRText
+            ScreenOcrText = null
         };
     }
 }
