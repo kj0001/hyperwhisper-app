@@ -27728,7 +27728,7 @@ internal static class Program
                     SettingsService.Instance.HideFromClipboardHistory = previousHide;
                     SettingsService.Instance.RestoreClipboardAfterPaste = previousRestore;
                     TextDeliveryGate.SetSuppressed(previousGate);
-                    RestoreWholeClipboard(operatorClipboard);
+                    PutBackWholeClipboard(operatorClipboard);
                 }
             });
 
