@@ -176,9 +176,10 @@
   </ItemGroup>
 
   <!-- Parakeet/Qwen3/Nemotron engine daemon and runtime dependencies. -->
-  <!-- x64 files are pre-built and placed in Resources/parakeet-engine/x64/. -->
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-x64'">
-    <Content Include="Resources\parakeet-engine\x64\**">
+  <!-- x64 files are built from source by tools/build-parakeet-engine-ci.ps1
+       (or CI) into Resources/parakeet-engine/x64/. -->
+  <ItemGroup Condition="('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-x64') And Exists('Resources\parakeet-engine\x64\parakeet-engine.exe')">
+    <Content Include="Resources\parakeet-engine\x64\**" Exclude="Resources\parakeet-engine\x64\.gitkeep;Resources\parakeet-engine\x64\README.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>parakeet-engine\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>
@@ -227,6 +228,12 @@
            Text="hyperwhisper_core.dll (x64) is missing from Resources\rust-core\x64\. Build it from shared-core-rs (cargo build --release --target x86_64-pc-windows-msvc) and copy it there, or let CI produce it. See Resources/rust-core/README.md." />
     <Error Condition="'$(RuntimeIdentifier)' == 'win-arm64' And !Exists('Resources\rust-core\arm64\hyperwhisper_core.dll')"
            Text="hyperwhisper_core.dll (arm64) is missing from Resources\rust-core\arm64\. Build it from shared-core-rs (cargo build --release --target aarch64-pc-windows-msvc) and copy it there, or let CI produce it. See Resources/rust-core/README.md." />
+  </Target>
+
+  <Target Name="EnsureParakeetEngineFiles" BeforeTargets="Build;Publish"
+          Condition="'$(DesignTimeBuild)' != 'true' And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'win-x64')">
+    <Error Condition="!Exists('Resources\parakeet-engine\x64\parakeet-engine.exe') Or !Exists('Resources\parakeet-engine\x64\sherpa-onnx-c-api.dll') Or !Exists('Resources\parakeet-engine\x64\onnxruntime.dll') Or !Exists('Resources\parakeet-engine\x64\DirectML.dll') Or !Exists('Resources\parakeet-engine\x64\silero_vad.onnx')"
+           Text="Windows x64 parakeet-engine binaries are missing from Resources\parakeet-engine\x64\. Build them from source with tools\build-parakeet-engine-ci.ps1 (or let Windows CI produce the parakeet-engine-x64 artifact). See Resources/parakeet-engine/README.md." />
   </Target>
 
   <!-- Warn on RID-less builds on an ARM64 host: the RID-less build copies the

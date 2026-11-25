@@ -39,6 +39,8 @@ on:
       # The golden catalog, app-type and backup vectors (issues #277, #279,
       # #280), run by the conformance steps below.
       - "shared-conformance/**"
+      - "tools/parakeet-engine/**"
+      - "tools/build-parakeet-engine-ci.ps1"
       - ".github/workflows/windows-ci.yml"
   push:
     branches: [main]
@@ -158,6 +160,41 @@ jobs:
           # Long enough that a dev box a few weeks behind main still finds the
           # build for the commit it has checked out; short of the 90-day
           # default because these are debug aids, not release artifacts.
+          retention-days: 30
+
+      # ----------------------------------------------------------------
+      # 5b. Cache, build, verify, and upload x64 parakeet-engine from source
+      # ----------------------------------------------------------------
+      - name: Cache x64 parakeet-engine binaries
+        id: cache-parakeet
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: app/windows/HyperWhisper/Resources/parakeet-engine/x64
+          key: windows-ci-parakeet-x64-v1.13.3-${{ hashFiles('tools/parakeet-engine/**', 'tools/build-parakeet-engine-ci.ps1') }}
+
+      - name: Build and verify x64 parakeet-engine from source
+        shell: pwsh
+        run: |
+          $dir = "app\windows\HyperWhisper\Resources\parakeet-engine\x64"
+          $required = @("parakeet-engine.exe", "sherpa-onnx-c-api.dll", "onnxruntime.dll", "DirectML.dll", "silero_vad.onnx")
+          $missing = $required | Where-Object { -not (Test-Path (Join-Path $dir $_)) }
+          if ($missing.Count -gt 0) {
+            .\tools\build-parakeet-engine-ci.ps1 -WorkDir (Join-Path $env:RUNNER_TEMP "parakeet-build")
+          } else {
+            .\tools\build-parakeet-engine-ci.ps1 -VerifyOnly
+          }
+
+      - name: Upload x64 parakeet-engine binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: parakeet-engine-x64
+          path: |
+            app\windows\HyperWhisper\Resources\parakeet-engine\x64\parakeet-engine.exe
+            app\windows\HyperWhisper\Resources\parakeet-engine\x64\sherpa-onnx-c-api.dll
+            app\windows\HyperWhisper\Resources\parakeet-engine\x64\onnxruntime.dll
+            app\windows\HyperWhisper\Resources\parakeet-engine\x64\DirectML.dll
+            app\windows\HyperWhisper\Resources\parakeet-engine\x64\silero_vad.onnx
+          if-no-files-found: error
           retention-days: 30
 
       # ----------------------------------------------------------------

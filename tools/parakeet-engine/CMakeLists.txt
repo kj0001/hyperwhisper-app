@@ -14,7 +14,9 @@ message(STATUS "SHERPA_ONNX_DIR = ${SHERPA_ONNX_DIR}")
 
 # ── Find sherpa-onnx include directory ──
 # The C API header is in the source tree
-set(SHERPA_ONNX_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx")
+if(NOT DEFINED SHERPA_ONNX_SRC_DIR)
+  set(SHERPA_ONNX_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx" CACHE PATH "Path to sherpa-onnx source directory")
+endif()
 if(NOT EXISTS "${SHERPA_ONNX_SRC_DIR}/sherpa-onnx/c-api/c-api.h")
   message(FATAL_ERROR "Cannot find sherpa-onnx/c-api/c-api.h in ${SHERPA_ONNX_SRC_DIR}")
 endif()
