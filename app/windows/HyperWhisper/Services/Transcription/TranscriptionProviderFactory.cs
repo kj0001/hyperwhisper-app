@@ -210,13 +210,23 @@ public class TranscriptionProviderFactory : IDisposable
     }
 
     /// <summary>
+    /// Returns true if HyperWhisper Cloud prewarm pings should fire for the given
+    /// mode and license state. Unlicensed installs skip background warmup pings.
+    /// </summary>
+    internal static bool ShouldPrewarmHyperWhisperCloud(Mode? mode, bool hasStoredLicenseKey)
+        => hasStoredLicenseKey && IsHyperWhisperCloudActive(mode);
+
+    private static bool HasStoredLicenseKey()
+        => !string.IsNullOrWhiteSpace(LicenseManager.Instance.GetStoredLicenseKey());
+
+    /// <summary>
     /// Pre-warms the HyperWhisper Cloud connection if — and only if — cloud is
-    /// currently the active transcription provider for the given mode. Safe to
-    /// call from any hotkey-down path. Fire-and-forget.
+    /// currently the active transcription provider for the given mode and a
+    /// license key is stored. Safe to call from any hotkey-down path. Fire-and-forget.
     /// </summary>
     public void PrewarmCloudConnectionIfActive(Mode? mode)
     {
-        if (!IsHyperWhisperCloudActive(mode)) return;
+        if (!ShouldPrewarmHyperWhisperCloud(mode, HasStoredLicenseKey())) return;
         _hyperWhisperCloud.Value.PrewarmConnection();
     }
 
@@ -227,7 +237,7 @@ public class TranscriptionProviderFactory : IDisposable
     /// </summary>
     public void PrewarmCloudConnectionIfActiveForced(Mode? mode)
     {
-        if (!IsHyperWhisperCloudActive(mode)) return;
+        if (!ShouldPrewarmHyperWhisperCloud(mode, HasStoredLicenseKey())) return;
         _hyperWhisperCloud.Value.PrewarmConnectionForced();
     }
 

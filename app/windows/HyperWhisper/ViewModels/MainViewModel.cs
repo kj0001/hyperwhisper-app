@@ -577,6 +577,9 @@ public partial class MainViewModel : ViewModelBase
         _pushToTalkMonitor.Start();
     }
 
+    internal static bool ShouldLoadRecentReleasesOnStartup(bool checkForUpdatesAutomatically)
+        => checkForUpdatesAutomatically;
+
     public override async Task OnNavigatedToAsync()
     {
         if (IsInitialized) return;
@@ -593,7 +596,10 @@ public partial class MainViewModel : ViewModelBase
             _pasteService = new SmartPasteService();
             await AutoLoadModelAsync();
             await InitializeGettingStartedAsync();
-            _ = LoadRecentReleasesAsync();
+            if (ShouldLoadRecentReleasesOnStartup(_settingsService.CheckForUpdatesAutomatically))
+            {
+                _ = LoadRecentReleasesAsync();
+            }
             IsInitialized = true;
         }
         finally { IsLoading = false; }
