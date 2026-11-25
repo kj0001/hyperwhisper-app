@@ -24,6 +24,13 @@ app/macos/hyperwhisper/Libraries/libhyperwhisper_core.a
 # Linux CI and local release builds stage the Rust core here before publish.
 # Keep only the directory placeholder; the ELF is rebuilt from source.
 app/linux/HyperWhisper.Linux/Resources/rust-core/linux-x64/libhyperwhisper_core.so
+# Rebuilt Windows x64 parakeet-engine daemon, sherpa-onnx/ONNX Runtime/DirectML DLLs,
+# and silero_vad.onnx. Not committed (issue #6): built from source by
+# tools/build-parakeet-engine-ci.ps1 and cached/uploaded by Windows CI.
+app/windows/HyperWhisper/Resources/parakeet-engine/x64/*.exe
+app/windows/HyperWhisper/Resources/parakeet-engine/x64/*.dll
+app/windows/HyperWhisper/Resources/parakeet-engine/x64/*.onnx
+app/windows/HyperWhisper/Resources/parakeet-engine/x64/*.pdb
 .vs/
 *.DotSettings.user
 
