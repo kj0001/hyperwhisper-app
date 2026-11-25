@@ -5,7 +5,6 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using HyperWhisper.Models;
-using HyperWhisper.Services.LocalApi;
 using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Services;
@@ -925,7 +924,6 @@ public static class LoggingService
         sb.AppendLine();
 
         AppendSettingsSnapshot(sb);
-        AppendLocalApiSnapshot(sb);
         AppendProviderKeySnapshot(sb);
         AppendModelSnapshot(sb);
         AppendCustomEndpointSnapshot(sb);
@@ -968,30 +966,6 @@ public static class LoggingService
         catch (Exception ex)
         {
             sb.AppendLine($"Settings snapshot failed: {ex.GetType().Name}: {ex.Message}");
-            sb.AppendLine();
-        }
-    }
-
-    private static void AppendLocalApiSnapshot(StringBuilder sb)
-    {
-        try
-        {
-            var settings = SettingsService.Instance;
-            var server = LocalApiServer.Instance;
-
-            sb.AppendLine("Local API");
-            sb.AppendLine("---------");
-            sb.AppendLine($"Setting enabled: {settings.LocalApiServerEnabled}");
-            sb.AppendLine($"Running: {server.IsRunning}");
-            sb.AppendLine($"Listening port: {server.ListeningPort}");
-            sb.AppendLine($"Persisted port: {settings.LocalApiServerPersistedPort}");
-            sb.AppendLine($"Bearer token present: {!string.IsNullOrWhiteSpace(server.BearerToken)}");
-            sb.AppendLine($"Last error present: {!string.IsNullOrWhiteSpace(server.LastError)}");
-            sb.AppendLine();
-        }
-        catch (Exception ex)
-        {
-            sb.AppendLine($"Local API snapshot failed: {ex.GetType().Name}: {ex.Message}");
             sb.AppendLine();
         }
     }

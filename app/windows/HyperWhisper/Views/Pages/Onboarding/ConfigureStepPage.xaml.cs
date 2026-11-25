@@ -1,8 +1,6 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using HyperWhisper.Services;
 using HyperWhisper.ViewModels.Onboarding;
 
 namespace HyperWhisper.Views.Pages.Onboarding;
@@ -85,22 +83,6 @@ public partial class ConfigureStepPage : Page
         finally
         {
             _syncingPassword = false;
-        }
-    }
-
-    /// <summary>
-    /// Opens the site where credits are bought. macOS does the same from its view
-    /// (OnboardingSourceViews.swift:341-344): a link is presentation, not policy.
-    /// </summary>
-    private void GetCredits_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo("https://hyperwhisper.com") { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Warn($"ConfigureStepPage: could not open the credits page: {ex.Message}");
         }
     }
 }

@@ -878,17 +878,6 @@ if (Test-Path -LiteralPath $MainWindowPath) {
         "onboarding refuses to open OVER a running dictation, whose transcript the delivery gate would then swallow"
 }
 
-# The Local API keeps serving against the exact Mode row and shared orchestrator
-# the flow stages. One middleware, per METHOD, so a new endpoint inherits it.
-$LocalApiServerPath = Join-Path $ProjectRoot "Services\LocalApi\LocalApiServer.cs"
-if (Test-Path -LiteralPath $LocalApiServerPath) {
-    $serverSource = Read-Text $LocalApiServerPath
-    Assert-Wired $serverSource "!IsReadOnlyMethod(ctx.Request.Method) && OnboardingSession.IsActive" `
-        "the Local API refuses every mutating request while the first-run window is open"
-} else {
-    Write-Fail "LocalApiServer.cs not found at $(Get-RelativePath $LocalApiServerPath)"
-}
-
 # The four close routes run the SAME rollback, so they owe the same report. Only
 # an OS session end may skip it, because only that one can be blocked by a modal.
 if (Test-Path -LiteralPath $OnboardingWindowCode) {

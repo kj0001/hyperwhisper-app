@@ -95,13 +95,6 @@
                             <TextBlock Text="{loc:Loc settings.nav.output}" FontSize="13" Margin="10,0,0,0" VerticalAlignment="Center"/>
                         </StackPanel>
                     </ListBoxItem>
-                    <ListBoxItem Tag="LocalApi">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xEC7A;" FontFamily="Segoe MDL2 Assets" FontSize="14"
-                                       Width="20" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"/>
-                            <TextBlock Text="{loc:Loc settings.nav.localApi}" FontSize="13" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </ListBoxItem>
                     <ListBoxItem Tag="Shortcuts">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE765;" FontFamily="Segoe MDL2 Assets" FontSize="14"

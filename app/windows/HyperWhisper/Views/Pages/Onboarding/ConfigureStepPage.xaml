@@ -130,10 +130,6 @@
                                         <TextBlock Style="{StaticResource OnboardingBigNumberCaptionStyle}"
                                                    Text="{loc:Loc onboarding.configure.cloud.creditsCaption}"/>
                                     </StackPanel>
-                                    <Button Grid.Column="1"
-                                            Style="{StaticResource OnboardingButtonStyle}"
-                                            Content="{loc:Loc onboarding.configure.cloud.getCredits}"
-                                            Click="GetCredits_Click"/>
                                 </Grid>
                             </Border>
                         </StackPanel>

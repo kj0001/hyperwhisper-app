@@ -4,7 +4,6 @@ using System.Windows.Media;
 using HyperWhisper.Data;
 using HyperWhisper.Localization;
 using HyperWhisper.Services;
-using HyperWhisper.Services.LocalApi;
 using HyperWhisper.Services.Onboarding;
 using HyperWhisper.Services.Transcription;
 
@@ -287,61 +286,6 @@ public partial class App : WpfApplication
         // remembers them per app. Put back what the restore journal still lists.
         // ast-grep-ignore: no-discarded-task-run -- device enumeration must stay off the UI thread; the method logs every exception
         _ = Task.Run(AudioEnvironmentService.Instance.RecoverMuffleVolumesFromEarlierRun);
-
-        // LOCAL API SERVER
-        // Off by default. When the user has enabled it via Settings → Local API,
-        // bring up the loopback HTTP host so MCP/cURL scripts can talk to the
-        // app immediately on launch.
-        try
-        {
-            var whisperModels = new WhisperModelService();
-            var parakeetModels = new ParakeetModelService();
-            var localLlmModels = new LocalLlmModelService();
-            var modelLibrary = new ModelLibraryManager(
-                whisperModels,
-                parakeetModels,
-                localLlmModels,
-                ApiKeyService.Instance,
-                CloudProviderHealthService.Instance);
-
-            // A Quit that outran a request, or a hard kill, left that request's
-            // decoded upload or snapshot in %TEMP%; remove it now (#1476).
-            var scratchSweepCutoffUtc = DateTime.UtcNow;
-            // ast-grep-ignore: no-discarded-task-run -- start-up runs on the UI thread and %TEMP% can hold many files; the sweep catches its own IO errors and the catch inside the lambda logs anything else
-            _ = Task.Run(() =>
-            {
-                try { LocalApiScratchFiles.SweepLeftovers(scratchSweepCutoffUtc); }
-                catch (Exception ex) { LoggingService.Warn($"LocalAPI scratch sweep failed: {ex.Message}"); }
-            });
-
-            // Phase 3: hand the API server the same orchestrator + local
-            // provider that `MainViewModel` consumes via
-            // <see cref="TranscriptionRuntime"/>. The shared local provider
-            // is the one the GUI calls `InitializeAsync(modelPath)` on, so
-            // once the user opens HyperWhisper and a model loads, the API
-            // server sees `IsAvailable == true` on the same instance and
-            // `POST /transcribe` against a local Mode succeeds.
-            LocalApiServer.Instance.Configure(
-                modelLibrary,
-                whisperModels,
-                parakeetModels,
-                localLlmModels,
-                CloudProviderHealthService.Instance,
-                ApiKeyService.Instance,
-                TranscriptionRuntime.Orchestrator,
-                TranscriptionRuntime.LocalProvider,
-                TranscriptionRuntime.ParakeetProvider);
-
-            if (SettingsService.Instance.LocalApiServerEnabled)
-            {
-                LocalApiServer.Instance.Start();
-            }
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Warn($"Failed to initialize Local API server: {ex.Message}");
-            // Continue — Local API failures must not block app startup.
-        }
     }
 
     /// <summary>
@@ -470,11 +414,6 @@ public partial class App : WpfApplication
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // Stop the loopback HTTP host so the discovery file gets removed and
-        // the port frees up cleanly. The shared orchestrator + local provider
-        // owned by TranscriptionRuntime are disposed implicitly by process exit.
-        try { LocalApiServer.Instance.Shutdown(); } catch { /* best-effort on shutdown */ }
-
         // The Whisper worker leaves with this process (stdin EOF); say so now,
         // while the log can still be written (#1932).
         try { TranscriptionRuntime.LocalProvider.LogWorkerAtAppExit(); } catch { /* best-effort on shutdown */ }
