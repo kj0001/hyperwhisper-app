@@ -27611,6 +27611,40 @@ internal static class Program
                 }
             }
 
+            Run("PushToTalkMonitor and KeyboardShortcutService omit raw keystroke VKs in Release logs (#2)", () =>
+            {
+                Assert(!PushToTalkMonitor.ShouldTraceKeyEvent("keyDown", isPartOfShortcut: false),
+                    "non-shortcut keyDown must not be traced");
+                Assert(!PushToTalkMonitor.ShouldTraceKeyEvent("keyUp", isPartOfShortcut: false),
+                    "non-shortcut keyUp must not be traced");
+                Assert(PushToTalkMonitor.ShouldTraceKeyEvent("keyDown", isPartOfShortcut: true),
+                    "shortcut keyDown should still be traced");
+                Assert(PushToTalkMonitor.ShouldTraceKeyEvent("timer", isPartOfShortcut: false),
+                    "timer trace events should still be traced");
+
+#if !DEBUG
+                var trace = PushToTalkMonitor.FormatTraceMessage(
+                    "keyDown",
+                    0x41,
+                    HyperWhisper.SharedCore.PortablePttState.LatchActive,
+                    enteredViaHold: false,
+                    shortcutSatisfied: false,
+                    sinceFirstTap: "none",
+                    sinceLock: "100ms");
+                Assert(!trace.Contains("vk=", StringComparison.Ordinal) && !trace.Contains("65", StringComparison.Ordinal),
+                    $"Release PTT trace must omit virtual-key code, got '{trace}'");
+
+                var chordLog = KeyboardShortcutService.FormatModifierOnlyTransitionLog(
+                    "toggle",
+                    KeyboardShortcut.FromPersistedString("Ctrl+Alt"),
+                    ModifierChordState.Armed,
+                    ModifierChordState.Spoiled,
+                    0x41);
+                Assert(!chordLog.Contains("vk=", StringComparison.Ordinal) && !chordLog.Contains("0x41", StringComparison.Ordinal),
+                    $"Release modifier-only log must omit virtual-key code, got '{chordLog}'");
+#endif
+            });
+
             Console.WriteLine(_failures == 0
                 ? "All smoke tests passed."
                 : $"{_failures} smoke test(s) FAILED.");
