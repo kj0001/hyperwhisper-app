@@ -40,7 +40,7 @@ public static class ModeDefaults
                 Model = "large-v3-turbo",
                 ModelType = "large-v3-turbo",
                 CloudProvider = null,
-                CloudAccuracyTier = null,
+                CloudAccuracyTier = string.Empty,
                 CloudTranscriptionModel = null,
                 PostProcessingMode = 0,
                 PostProcessingProvider = null,

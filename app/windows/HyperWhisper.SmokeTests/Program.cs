@@ -15042,16 +15042,18 @@ internal static class Program
                 Assert(!empty.Flow.IsOnDeviceAvailable, "precondition: no local engine on this machine");
                 Assert(empty.Flow.SourceOptions.All(r => r.Kind != OnboardingSourceKind.OnDevice),
                     "the on-device card must not be offered where no model can be installed");
-                Assert(empty.Flow.SourceOptions.Count == 2, "the other two branches are unaffected");
+                Assert(empty.Flow.SourceOptions.Count == 1, "the BYOK branch is unaffected");
+                Assert(empty.Flow.SourceOptions[0].Kind == OnboardingSourceKind.YourProvider,
+                    "YourProvider remains offered when no local engine is available");
 
                 empty.Flow.SelectSource(OnboardingSourceKind.OnDevice);
                 Assert(empty.Flow.SelectedSource != OnboardingSourceKind.OnDevice,
                     "and it cannot be staged by any other route either");
 
-                // The normal machine still gets all three.
+                // The normal machine gets both branches (On-device + Your provider).
                 var normal = new OnboardingHarness();
                 Assert(normal.Flow.IsOnDeviceAvailable, "precondition: the fake catalog has models");
-                Assert(normal.Flow.SourceOptions.Count == 3, "every branch is offered where it works");
+                Assert(normal.Flow.SourceOptions.Count == 2, "both branches are offered where local models work");
                 Assert(normal.Flow.SourceOptions.Any(r => r.Kind == OnboardingSourceKind.OnDevice),
                     "including on-device");
             });
