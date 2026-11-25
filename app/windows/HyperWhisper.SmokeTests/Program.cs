@@ -27645,6 +27645,93 @@ internal static class Program
 #endif
             });
 
+            Run("clipboard privacy (#4): concealed clipboard content is never snapshotted or restored", () =>
+            {
+                // Unit checks on privacy format detection
+                Assert(!ClipboardBackup.IsClipboardConcealed(_ => false, _ => null),
+                    "plain clipboard with no exclusion formats must not be treated as concealed");
+                Assert(ClipboardBackup.IsClipboardConcealed(f => f == SmartPasteDelayTable.ExcludeFromMonitorFormat, _ => ""),
+                    "ExcludeClipboardContentFromMonitorProcessing must mark clipboard concealed");
+                Assert(ClipboardBackup.IsClipboardConcealed(
+                        f => f == SmartPasteDelayTable.CanIncludeInHistoryFormat,
+                        _ => new MemoryStream(BitConverter.GetBytes(0))),
+                    "CanIncludeInClipboardHistory = DWORD 0 must mark clipboard concealed");
+                Assert(!ClipboardBackup.IsClipboardConcealed(
+                        f => f == SmartPasteDelayTable.CanIncludeInHistoryFormat,
+                        _ => new MemoryStream(BitConverter.GetBytes(1))),
+                    "CanIncludeInClipboardHistory = DWORD 1 must allow normal backup");
+                Assert(ClipboardBackup.IsClipboardConcealed(
+                        f => f == SmartPasteDelayTable.CanUploadToCloudFormat,
+                        _ => new MemoryStream(BitConverter.GetBytes(0))),
+                    "CanUploadClipboardContentToCloud = DWORD 0 must mark clipboard concealed");
+                Assert(ClipboardBackup.IsClipboardConcealed(
+                        f => f == SmartPasteDelayTable.CanIncludeInHistoryFormat,
+                        _ => throw new InvalidOperationException("simulated clipboard read error")),
+                    "unreadable privacy flag must fail closed as concealed");
+
+                // Live clipboard checks (restore operator clipboard in finally)
+                var operatorClipboard = SnapshotWholeClipboard();
+                var previousGate = TextDeliveryGate.IsSuppressed;
+                var previousRestore = SettingsService.Instance.RestoreClipboardAfterPaste;
+                var previousHide = SettingsService.Instance.HideFromClipboardHistory;
+                try
+                {
+                    TextDeliveryGate.SetSuppressed(false);
+                    SettingsService.Instance.RestoreClipboardAfterPaste = true;
+                    SettingsService.Instance.HideFromClipboardHistory = true;
+
+                    // 1. ExcludeClipboardContentFromMonitorProcessing secret is not snapshotted or restored
+                    using (var paste = new SmartPasteService())
+                    {
+                        var secretObj = new DataObject();
+                        secretObj.SetData(DataFormats.UnicodeText, "secret-pass-4");
+                        secretObj.SetData(SmartPasteDelayTable.ExcludeFromMonitorFormat, "");
+                        Clipboard.SetDataObject(secretObj, true);
+
+                        paste.StartRecordingSession();
+                        Assert(paste.SmartPaste("dictated text") == SmartPasteResult.CopiedToClipboard,
+                            "precondition: SmartPaste must copy transcript to clipboard");
+                        paste.RestoreClipboardImmediately();
+                        Assert(ReadClipboardText() == "dictated text",
+                            $"concealed clipboard secret must not be restored, got '{ReadClipboardText()}'");
+                    }
+
+                    // 2. CanIncludeInClipboardHistory = 0 secret is not snapshotted or restored
+                    using (var paste = new SmartPasteService())
+                    {
+                        var secretObj = new DataObject();
+                        secretObj.SetData(DataFormats.UnicodeText, "secret-history-0");
+                        secretObj.SetData(SmartPasteDelayTable.CanIncludeInHistoryFormat, new MemoryStream(BitConverter.GetBytes(0)));
+                        Clipboard.SetDataObject(secretObj, true);
+
+                        paste.StartRecordingSession();
+                        Assert(paste.SmartPaste("dictated text 2") == SmartPasteResult.CopiedToClipboard,
+                            "precondition: SmartPaste must copy second transcript");
+                        paste.RestoreClipboardImmediately();
+                        Assert(ReadClipboardText() == "dictated text 2",
+                            $"CanIncludeInClipboardHistory=0 secret must not be restored, got '{ReadClipboardText()}'");
+                    }
+
+                    // 3. SetClipboardText with HideFromClipboardHistory sets all 3 exclusion formats
+                    ClipboardBackup.SetClipboardText("hidden");
+                    Assert(Clipboard.ContainsData(SmartPasteDelayTable.ExcludeFromMonitorFormat),
+                        "SetClipboardText must set ExcludeClipboardContentFromMonitorProcessing");
+                    Assert(Clipboard.ContainsData(SmartPasteDelayTable.CanIncludeInHistoryFormat) &&
+                           ClipboardBackup.IsClipboardFlagDisabled(Clipboard.GetData(SmartPasteDelayTable.CanIncludeInHistoryFormat)),
+                        "SetClipboardText must set CanIncludeInClipboardHistory = 0");
+                    Assert(Clipboard.ContainsData(SmartPasteDelayTable.CanUploadToCloudFormat) &&
+                           ClipboardBackup.IsClipboardFlagDisabled(Clipboard.GetData(SmartPasteDelayTable.CanUploadToCloudFormat)),
+                        "SetClipboardText must set CanUploadClipboardContentToCloud = 0");
+                }
+                finally
+                {
+                    SettingsService.Instance.HideFromClipboardHistory = previousHide;
+                    SettingsService.Instance.RestoreClipboardAfterPaste = previousRestore;
+                    TextDeliveryGate.SetSuppressed(previousGate);
+                    PutBackWholeClipboard(operatorClipboard);
+                }
+            });
+
             Console.WriteLine(_failures == 0
                 ? "All smoke tests passed."
                 : $"{_failures} smoke test(s) FAILED.");

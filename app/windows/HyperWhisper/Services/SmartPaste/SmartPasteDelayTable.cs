@@ -66,6 +66,10 @@ internal static class SmartPasteDelayTable
     /// - File formats: FileDrop (file paths)
     /// - Other: Custom formats are also captured dynamically
     /// </summary>
+    internal const string ExcludeFromMonitorFormat = "ExcludeClipboardContentFromMonitorProcessing";
+    internal const string CanIncludeInHistoryFormat = "CanIncludeInClipboardHistory";
+    internal const string CanUploadToCloudFormat = "CanUploadClipboardContentToCloud";
+
     internal static readonly string[] SupportedFormats = new[]
     {
         DataFormats.UnicodeText,
