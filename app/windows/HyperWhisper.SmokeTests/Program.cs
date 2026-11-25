@@ -12561,22 +12561,12 @@ internal static class Program
                 Assert(!TranscriptionService.IsCpuOnlyRuntimeOrder("nonsense"), "unknown names keep the default (Vulkan) order");
             });
 
-            // =================================================================
-            // Local API wire contract (issue #289)
-            //
-            // #289 observed that `find app/macos app/windows -ipath '*test*'
-            // -iname '*localapi*'` was empty: of the three implementations of
-            // one documented contract, only the most-drifted had any tests.
-            // These are the Windows half.
-            //
-            // They test the SEAM, not the logic. The decision table, the
-            // encoder and the constant-time compare are pinned by the Rust
-            // crate's own suite, where they can be fuzzed. What can still go
-            // wrong here is the bridge — a header that never reaches the guard,
-            // a status the middleware overrides, a token the DPAPI store would
-            // reject.
-            // =================================================================
+            // Detach any WPF DispatcherSynchronizationContext left by earlier UI checks
+            // before running RunAsync blocks below (restored after #740).
+            var limitsPreviousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(null);
 
+            // =================================================================
             // Issue #740: the HyperWhisper Cloud credit balance.
             //
             // HyperWhisperCloudManager reads the user's paid balance from /usage.
