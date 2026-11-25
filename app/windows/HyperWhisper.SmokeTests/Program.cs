@@ -22285,6 +22285,91 @@ internal static class Program
                 }
             });
 
+            Run("fork hardening: zero HyperWhisper Cloud / telemetry / screen-capture code and local-only defaults", () =>
+            {
+                DirectoryInfo? repoRoot = null;
+                for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent)
+                {
+                    if (Directory.Exists(Path.Combine(dir.FullName, "app", "windows", "HyperWhisper")))
+                    {
+                        repoRoot = dir;
+                        break;
+                    }
+                }
+                Assert(repoRoot != null, $"repo root not found above {AppContext.BaseDirectory}");
+
+                var windowsAppDir = Path.Combine(repoRoot!.FullName, "app", "windows", "HyperWhisper");
+                var skipDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "bin", "obj", "Migrations", "Resources"
+                };
+                var forbiddenNeedles = new[]
+                {
+                    "hyperwhisper.com", "userjot.com", "sentry.io",
+                    "NetSparkleUpdater", "Microsoft.AspNetCore",
+                    "ScreenOCRCaptureService", "Windows.Media.Ocr", "Windows.Graphics.Imaging",
+                    "CopyFromScreen", "BitBlt", "PrintWindow",
+                    "HyperWhisperCloudService", "HyperWhisperCloudManager",
+                    "LicenseManager", "LicenseNetworkService",
+                    "DeviceIdService", "MachineGuid",
+                    "AzureMAITranscriptionService", "GoogleChirpTranscriptionService",
+                };
+
+                var matches = new List<string>();
+                var stack = new Stack<string>();
+                stack.Push(windowsAppDir);
+                while (stack.Count > 0)
+                {
+                    var current = stack.Pop();
+                    foreach (var subDir in Directory.EnumerateDirectories(current))
+                    {
+                        if (!skipDirs.Contains(Path.GetFileName(subDir)))
+                            stack.Push(subDir);
+                    }
+                    foreach (var file in Directory.EnumerateFiles(current))
+                    {
+                        var ext = Path.GetExtension(file);
+                        if (!ext.Equals(".cs", StringComparison.OrdinalIgnoreCase)
+                            && !ext.Equals(".xaml", StringComparison.OrdinalIgnoreCase)
+                            && !ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        var content = File.ReadAllText(file);
+                        foreach (var needle in forbiddenNeedles)
+                        {
+                            if (content.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                            {
+                                matches.Add($"{Path.GetRelativePath(windowsAppDir, file)}: '{needle}'");
+                            }
+                        }
+                    }
+                }
+                Assert(matches.Count == 0,
+                    "forbidden cloud/telemetry/screen-capture references found:\n" + string.Join("\n", matches));
+
+                var defaultModes = HyperWhisper.Data.ModeDefaults.GetDefaultModes();
+                Assert(defaultModes.Count == 1, $"expected 1 default mode, got {defaultModes.Count}");
+                var defaultMode = defaultModes[0];
+                Assert(defaultMode.ProviderType == "local"
+                       && defaultMode.LocalEngine == "whisper"
+                       && defaultMode.ModelType == "large-v3-turbo"
+                       && defaultMode.Model == "large-v3-turbo"
+                       && defaultMode.PostProcessingMode == 0
+                       && defaultMode.CloudProvider == null
+                       && !defaultMode.EnableScreenOCR,
+                    "first-run ModeDefaults must stay local whisper large-v3-turbo with post-processing and OCR off");
+
+                Assert(!SettingsService.Instance.SendAppContextToPostProcessing,
+                    "SendAppContextToPostProcessing must default to false");
+                Assert(!SettingsService.Instance.EnableErrorLogging,
+                    "EnableErrorLogging must default to false");
+                Assert(!SettingsService.Instance.CheckForUpdatesAutomatically,
+                    "CheckForUpdatesAutomatically must default to false");
+                Assert(!SettingsService.Instance.ShareAnonymousSpeedData,
+                    "ShareAnonymousSpeedData must default to false");
+            });
+
             Console.WriteLine(_failures == 0
                 ? "All smoke tests passed."
                 : $"{_failures} smoke test(s) FAILED.");

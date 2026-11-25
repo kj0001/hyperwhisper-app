@@ -8,7 +8,7 @@
 
     Every failure on this page reads ONE message, SetupErrorMessage, framed by
     localized copy because the managers report in hard-coded English. Nothing here
-    falls back to LicenseManager's or ApiKeyService's app-global error state: those
+    falls back to ApiKeyService's app-global error state: those
     are long lived and unobserved, and reading them renders an unrelated failure
     from an earlier session.
 -->

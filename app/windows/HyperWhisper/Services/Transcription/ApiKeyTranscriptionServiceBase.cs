@@ -19,11 +19,6 @@
 // the TranscriptionRequest of each call. It used to be an instance property
 // that Configure wrote, so a GUI dictation and a Local API request that
 // overlapped could each send the other's model.
-//
-// NOT for the HyperWhisper-Cloud-routed services (HyperWhisperCloudService,
-// AzureMAITranscriptionService, GoogleChirpTranscriptionService). Those take no
-// API key and share one process-wide HttpClient instead of owning one. The two
-// vendor-pinned ones share RoutedTranscriptionServiceBase instead.
 
 using System.Net.Http;
 using uniffi.hyperwhisper_core;

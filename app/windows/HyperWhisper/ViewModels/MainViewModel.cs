@@ -425,9 +425,8 @@ public partial class MainViewModel : ViewModelBase
         });
 
     /// <summary>
-    /// A licence activation/deactivation or a BYOK key save/removal: refresh the
-    /// model status on the UI thread. LicenseManager raises from whichever thread
-    /// finished the validation, and a fault here must not escape into it.
+    /// Refresh the model status badge on the UI thread when BYOK key or
+    /// health state changes.
     /// </summary>
     private void OnModelStatusSourceChanged(object? sender, EventArgs e)
         => RunModelStatusRefreshOnUiThread(RefreshModelStatusSafely);

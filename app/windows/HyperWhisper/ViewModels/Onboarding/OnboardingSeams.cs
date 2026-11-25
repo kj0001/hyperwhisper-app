@@ -2,11 +2,8 @@
 //
 // The narrow interfaces the first-run flow model talks to, plus every value type
 // that crosses them. Mirrors the six protocols in
-// app/macos/hyperwhisper/Views/Onboarding/OnboardingFlowModel.swift (lines 125-218),
-// with a seventh added for the cloud credits figure: macOS injects
-// HyperWhisperCloudManager into the sheet as an @EnvironmentObject and reads
-// `credits` straight from the views (OnboardingView.swift:63-64), which the Windows
-// rule "only OnboardingLiveDependencies knows about singletons" forbids.
+// app/macos/hyperwhisper/Views/Onboarding/OnboardingFlowModel.swift (lines 125-218).
+// Singletons stay isolated inside OnboardingLiveDependencies.
 //
 // Two shape changes are deliberate and are described in full in the PR:
 //   - Permissions row 2 is the global shortcut, not Accessibility. Windows has no
