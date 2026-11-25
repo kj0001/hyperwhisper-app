@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using HyperWhisper.Models;
 using HyperWhisper.Services.LocalApi;
+using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Services;
 
@@ -184,12 +185,12 @@ public static class LoggingService
 
     /// <summary>
     /// Logs a WARN level message with exception details. The exception message and
-    /// stack trace go through <see cref="SentryService.RedactUserIdentifiers(string?)"/>:
+    /// stack trace go through <see cref="UserPathRedactor.RedactUserIdentifiers(string?)"/>:
     /// a .NET IO exception names the full path, which sits under the user's profile.
     /// </summary>
     public static void Warn(string message, Exception ex)
     {
-        WriteLog("WARN", $"{message}\n  Exception: {ex.GetType().Name}: {SentryService.RedactUserIdentifiers(ex.Message)}\n  StackTrace: {SentryService.RedactUserIdentifiers(ex.StackTrace)}");
+        WriteLog("WARN", $"{message}\n  Exception: {ex.GetType().Name}: {UserPathRedactor.RedactUserIdentifiers(ex.Message)}\n  StackTrace: {UserPathRedactor.RedactUserIdentifiers(ex.StackTrace)}");
     }
 
     /// <summary>
@@ -212,8 +213,8 @@ public static class LoggingService
         var sb = new StringBuilder();
         sb.AppendLine(message);
         sb.AppendLine($"  Exception Type: {ex.GetType().FullName}");
-        sb.AppendLine($"  Message: {SentryService.RedactUserIdentifiers(ex.Message)}");
-        sb.AppendLine($"  StackTrace: {SentryService.RedactUserIdentifiers(ex.StackTrace)}");
+        sb.AppendLine($"  Message: {UserPathRedactor.RedactUserIdentifiers(ex.Message)}");
+        sb.AppendLine($"  StackTrace: {UserPathRedactor.RedactUserIdentifiers(ex.StackTrace)}");
 
         // Log inner exceptions for complete picture
         var inner = ex.InnerException;
@@ -221,8 +222,8 @@ public static class LoggingService
         while (inner != null)
         {
             sb.AppendLine($"  Inner Exception [{depth}]: {inner.GetType().FullName}");
-            sb.AppendLine($"    Message: {SentryService.RedactUserIdentifiers(inner.Message)}");
-            sb.AppendLine($"    StackTrace: {SentryService.RedactUserIdentifiers(inner.StackTrace)}");
+            sb.AppendLine($"    Message: {UserPathRedactor.RedactUserIdentifiers(inner.Message)}");
+            sb.AppendLine($"    StackTrace: {UserPathRedactor.RedactUserIdentifiers(inner.StackTrace)}");
             inner = inner.InnerException;
             depth++;
         }
@@ -256,9 +257,9 @@ public static class LoggingService
         sb.AppendLine($"  64-bit Process: {Environment.Is64BitProcess}");
         sb.AppendLine($"  Machine Name: {Environment.MachineName}");
         sb.AppendLine($"  Processor Count: {Environment.ProcessorCount}");
-        sb.AppendLine($"  Working Directory: {SentryService.RedactUserIdentifiers(Environment.CurrentDirectory)}");
-        sb.AppendLine($"  Executable Path: {SentryService.RedactUserIdentifiers(Environment.ProcessPath)}");
-        sb.AppendLine($"  AppDomain Base Directory: {SentryService.RedactUserIdentifiers(AppDomain.CurrentDomain.BaseDirectory)}");
+        sb.AppendLine($"  Working Directory: {UserPathRedactor.RedactUserIdentifiers(Environment.CurrentDirectory)}");
+        sb.AppendLine($"  Executable Path: {UserPathRedactor.RedactUserIdentifiers(Environment.ProcessPath)}");
+        sb.AppendLine($"  AppDomain Base Directory: {UserPathRedactor.RedactUserIdentifiers(AppDomain.CurrentDomain.BaseDirectory)}");
         sb.AppendLine("=========================================");
 
         Info(sb.ToString());
@@ -288,8 +289,8 @@ public static class LoggingService
         var baseDir = AppDomain.CurrentDomain.BaseDirectory;
         var runtimesDir = Path.Combine(baseDir, "runtimes");
 
-        sb.AppendLine($"  Base Directory: {SentryService.RedactUserIdentifiers(baseDir)}");
-        sb.AppendLine($"  Runtimes Directory: {SentryService.RedactUserIdentifiers(runtimesDir)}");
+        sb.AppendLine($"  Base Directory: {UserPathRedactor.RedactUserIdentifiers(baseDir)}");
+        sb.AppendLine($"  Runtimes Directory: {UserPathRedactor.RedactUserIdentifiers(runtimesDir)}");
         sb.AppendLine($"  Runtimes Exists: {Directory.Exists(runtimesDir)}");
 
         if (Directory.Exists(runtimesDir))
@@ -851,7 +852,7 @@ public static class LoggingService
             }
 
             ZipFile.CreateFromDirectory(tempRoot, destinationPath, CompressionLevel.Optimal, includeBaseDirectory: false);
-            Info($"LoggingService: Exported diagnostics to {SentryService.RedactUserIdentifiers(destinationPath)}");
+            Info($"LoggingService: Exported diagnostics to {UserPathRedactor.RedactUserIdentifiers(destinationPath)}");
             return destinationPath;
         }
         finally
@@ -904,7 +905,7 @@ public static class LoggingService
             Machine Name: {Environment.MachineName}
             Processor Count: {Environment.ProcessorCount}
             Working Set MB: {process.WorkingSet64 / 1024 / 1024}
-            Log Directory: {SentryService.RedactUserIdentifiers(LogDirectory)}
+            Log Directory: {UserPathRedactor.RedactUserIdentifiers(LogDirectory)}
 
             Included Files:
             - logs/hyperwhisper-*.log
@@ -912,7 +913,6 @@ public static class LoggingService
             - runtime-state.txt
 
             Note: Transcripts, audio recordings, app settings, and API keys are not added to this export.
-            Update events are included in the app logs when the Windows updater runs.
             """;
     }
 

@@ -143,12 +143,6 @@ internal sealed class RenderThreadFailureRecovery
         return true;
     }
 
-    /// <summary>Sends <paramref name="report"/> to Sentry, keeping the real stack.</summary>
-    internal static void SendReport(Report report) =>
-        SentryService.Capture(
-            report.Exception,
-            message: report.Message,
-            extras: report.Extras,
-            tags: report.Tags,
-            fingerprint: report.Fingerprint);
+    /// <summary>No-op reporter kept for render-recovery test seams; telemetry is removed.</summary>
+    internal static void SendReport(Report report) { }
 }

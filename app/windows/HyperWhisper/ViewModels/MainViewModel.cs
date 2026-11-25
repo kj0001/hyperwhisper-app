@@ -176,11 +176,6 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _hasLowMicVolume;
     [ObservableProperty] private string _lowMicVolumeMessage = "";
 
-    // Recent Releases
-    [ObservableProperty] private List<AppcastItem>? _recentReleases;
-    [ObservableProperty] private bool _isLoadingReleases;
-    [ObservableProperty] private string? _releasesError;
-
     // One-shot request flag observed by ModelLibrary page (mirrors macOS shouldOpenModelLibraryAPIKeys).
     // Set by MainWindow when a credential-error toast's action is clicked; cleared by ModelsSettingsPage.
     [ObservableProperty] private bool _shouldOpenModelLibraryApiKeys;
@@ -577,9 +572,6 @@ public partial class MainViewModel : ViewModelBase
         _pushToTalkMonitor.Start();
     }
 
-    internal static bool ShouldLoadRecentReleasesOnStartup(bool checkForUpdatesAutomatically)
-        => checkForUpdatesAutomatically;
-
     public override async Task OnNavigatedToAsync()
     {
         if (IsInitialized) return;
@@ -596,10 +588,6 @@ public partial class MainViewModel : ViewModelBase
             _pasteService = new SmartPasteService();
             await AutoLoadModelAsync();
             await InitializeGettingStartedAsync();
-            if (ShouldLoadRecentReleasesOnStartup(_settingsService.CheckForUpdatesAutomatically))
-            {
-                _ = LoadRecentReleasesAsync();
-            }
             IsInitialized = true;
         }
         finally { IsLoading = false; }
@@ -1083,31 +1071,6 @@ public partial class MainViewModel : ViewModelBase
         var engine = mode.LocalEngine == "parakeet" ? "parakeet" : "whisper";
         var model = engine == "parakeet" ? mode.LocalParakeetModel : mode.ModelType;
         LoggingService.Error($"MainViewModel: Background model load failed (trigger={trigger}, engine={engine}, model={model ?? "none"})", ex);
-
-        if (!SettingsService.Instance.EnableErrorLogging) return;
-
-        // Whisper.net caches a failed native load, so both startup triggers can throw
-        // the same exception. The dedupe key keeps that to one report per session.
-        var exceptionType = ex.GetType().FullName ?? "unknown";
-        SentryService.CaptureDiagnosticEvent(
-            message: "Background model load failed",
-            extras: new(StringComparer.Ordinal)
-            {
-                ["model_load_trigger"] = trigger,
-                ["model_load_engine"] = engine,
-                ["model_load_model"] = model ?? "none",
-                ["model_load_exception_type"] = exceptionType,
-                ["runtime_identifier"] = RuntimeInformation.RuntimeIdentifier,
-                ["is_arm64"] = RuntimeInformation.ProcessArchitecture == Architecture.Arm64,
-            },
-            tags: new(StringComparer.Ordinal)
-            {
-                ["component"] = "model_load",
-                ["diagnostic_name"] = "background_model_load_failed",
-                ["model_load_engine"] = engine,
-            },
-            fingerprint: ["model-load", "background", engine, exceptionType],
-            dedupeKey: $"model-load:background:{engine}:{exceptionType}");
     }
 
     // =========================================================================
@@ -1254,36 +1217,6 @@ public partial class MainViewModel : ViewModelBase
         var section = _pendingSettingsSection;
         _pendingSettingsSection = null;
         return CurrentPage == NavigationPage.Settings ? section : null;
-    }
-
-    // =========================================================================
-    // RECENT RELEASES
-    // =========================================================================
-
-    private async Task LoadRecentReleasesAsync()
-    {
-        IsLoadingReleases = true;
-        ReleasesError = null;
-
-        var result = await AppcastService.Instance.GetRecentReleasesAsync();
-        result.Match(
-            onSuccess: releases =>
-            {
-                RecentReleases = releases;
-                IsLoadingReleases = false;
-            },
-            onFailure: error =>
-            {
-                ReleasesError = error;
-                IsLoadingReleases = false;
-            });
-    }
-
-    [RelayCommand]
-    private async Task RetryLoadReleases()
-    {
-        AppcastService.Instance.ClearCache();
-        await LoadRecentReleasesAsync();
     }
 
     partial void OnSelectedModeChanged(Mode? value)

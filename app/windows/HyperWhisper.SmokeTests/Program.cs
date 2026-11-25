@@ -356,7 +356,6 @@ internal static class Program
                     (string)capturedPayload.Extras["classifier_outer_hresult"] == expectedHResult &&
                     (string)capturedPayload.Extras["classifier_innermost_hresult"] == expectedHResult,
                     "exception type or HRESULT is missing");
-                Assert(!capturedPayload.Extras.Keys.Any(SentryService.IsRedactedExtraKey), "an extra is redacted");
 
                 var values = capturedPayload.Tags.Values
                     .Concat(capturedPayload.Extras.Values.Select(
@@ -637,7 +636,6 @@ internal static class Program
                         || v.Contains("Политика", StringComparison.Ordinal)
                         || v.Contains("policy has blocked", StringComparison.OrdinalIgnoreCase)),
                     "the report carries a path or the OS's localized sentence");
-                Assert(!russian.Extras.Keys.Any(SentryService.IsRedactedExtraKey), "a report extra is redacted");
 
                 // TryReportBlock reports a block once per call, ignores everything
                 // else, and survives a reporter that throws.
@@ -650,14 +648,6 @@ internal static class Program
                 Assert(ApplicationControlDiagnostics.TryReportBlock(
                         native, "ui_startup", _ => throw new InvalidOperationException("reporter down")),
                     "a failing reporter turned a block into an unhandled fault");
-
-                // OnStartup starts Sentry before the database so a database_init block
-                // can reach it, and still only for a user who opted in.
-                var initCalls = 0;
-                Assert(!HyperWhisper.App.StartErrorReporting(() => false, () => initCalls++) && initCalls == 0,
-                    "Sentry started for a user who opted out of error reporting");
-                Assert(HyperWhisper.App.StartErrorReporting(() => true, () => initCalls++) && initCalls == 1,
-                    "Sentry did not start for a user who opted into error reporting");
 
                 // The notice: the catalog text when it resolves, English when the
                 // catalog throws (a blocked satellite) or misses the key.
@@ -7557,7 +7547,7 @@ internal static class Program
                 const string localAppData = @"D:\percy.tester\AppData";
                 const string user = "percy.tester";
                 const string token = "%USERPROFILE%";
-                string Scrub(string? text) => SentryService.RedactUserIdentifiers(text, profile, localAppData, user);
+                string Scrub(string? text) => UserPathRedactor.RedactUserIdentifiers(text, profile, localAppData, user);
 
                 var underProfile = Scrub(@"Load model from C:\Users\percy.tester\Documents\m\encoder.int8.onnx failed");
                 Assert(underProfile == $@"Load model from {token}\Documents\m\encoder.int8.onnx failed",
@@ -7580,9 +7570,9 @@ internal static class Program
                 Assert(!sibling.Contains(token, StringComparison.Ordinal), "no profile token inside another account's folder");
                 Assert(Scrub("[INFO] provider: directml") == "[INFO] provider: directml", "a line with no path must stay as it is");
                 Assert(Scrub(null) == "", "a null line scrubs to empty");
-                Assert(SentryService.RedactUserIdentifiers(@"C:\Users\x", "", null, null) == @"C:\Users\x",
+                Assert(UserPathRedactor.RedactUserIdentifiers(@"C:\Users\x", "", null, null) == @"C:\Users\x",
                     "unreadable identifiers leave the text alone");
-                Assert(SentryService.RedactUserIdentifiers(@"C:\Users\percy.tester\m", profile + @"\", null, null) == $@"{token}\m",
+                Assert(UserPathRedactor.RedactUserIdentifiers(@"C:\Users\percy.tester\m", profile + @"\", null, null) == $@"{token}\m",
                     "a trailing separator on the profile directory must not stop the match");
 
                 // The tail: the last 20 lines, redacted, joined, capped at 2,000 chars.
@@ -7605,9 +7595,9 @@ internal static class Program
                 Assert(!capped.Contains("percy.tester", StringComparison.OrdinalIgnoreCase), "the scrub runs before the cap");
             });
 
-            Run("Parakeet start-failure fields carry the issue's names, survive Sentry's key filter, and format as one line (#854)", () =>
+            Run("Parakeet start-failure fields carry the issue's names and format as one line (#854)", () =>
             {
-                string Redact(string? text) => SentryService.RedactUserIdentifiers(text, @"C:\Users\percy.tester", null, "percy.tester");
+                string Redact(string? text) => UserPathRedactor.RedactUserIdentifiers(text, @"C:\Users\percy.tester", null, "percy.tester");
                 var fields = ParakeetTranscriptionService.BuildStartFailureFields(
                     ParakeetTranscriptionService.StartFailureStdoutClosed,
                     unchecked((int)0xC0000409),
@@ -7628,15 +7618,6 @@ internal static class Program
                 };
                 Assert(fields.Select(f => f.Key).SequenceEqual(expectedKeys),
                     $"the field names must be the issue's, got {string.Join(",", fields.Select(f => f.Key))}");
-                // Every field is allow-listed except the stderr tail: that is raw daemon
-                // output, and only the account identifiers are scrubbed out of it, so it
-                // stays in the local log and reaches Sentry as [redacted] (#1890).
-                foreach (var key in expectedKeys.Where(k => k != "parakeet_stderr_tail"))
-                {
-                    Assert(!SentryService.IsRedactedExtraKey(key), $"Sentry's key filter would replace '{key}' with [redacted]");
-                }
-                Assert(SentryService.IsRedactedExtraKey("parakeet_stderr_tail"),
-                    "the raw stderr tail is on the Sentry allow-list");
 
                 var byKey = fields.ToDictionary(f => f.Key, f => f.Value);
                 Assert(byKey["parakeet_failure"] is "stdout_closed", "the failure slug");
@@ -7904,14 +7885,6 @@ internal static class Program
                         ],
                         reason: AudioDeviceSelectionReason.StartupFirstAvailable));
 
-                foreach (var key in extras.Keys.Where(k => k != "selected_input_device_name"))
-                {
-                    Assert(!SentryService.IsRedactedExtraKey(key),
-                        $"extra '{key}' will arrive at Sentry as [redacted] - add it to SentryService.AllowedExtraKeys if its value is never user content");
-                }
-                Assert(SentryService.IsRedactedExtraKey("selected_input_device_name"),
-                    "the renamable microphone name is on the Sentry allow-list");
-
                 // The three renamed fields must actually be present under their new
                 // names, or the rename above would "pass" by having deleted them.
                 Assert(extras.ContainsKey("diagnostic_record_id"), "diagnostic_record_id is missing");
@@ -7939,41 +7912,6 @@ internal static class Program
                 // question without it.
                 Assert(!extras.ContainsKey("mode_name"), "mode_name is user-typed text and must not be reported");
                 Assert(extras.ContainsKey("mode_preset"), "mode_preset is missing");
-
-                var fingerprint = TranscriptionDiagnosticsService.BuildDiagnosticFingerprint(
-                    "transcription-no-speech",
-                    "live_recording",
-                    "provider_no_speech",
-                    new Mode { Preset = "hyper" });
-                extras["raw_text"] = "must not leave the app";
-
-                var (transactionTags, transactionData) = SentryService.PrepareDiagnosticTransactionData(
-                    "Windows transcription no-speech diagnostic",
-                    extras,
-                    tags,
-                    fingerprint);
-
-                Assert(transactionTags["component"] == "transcription",
-                    "the transaction dropped a supplied diagnostic tag");
-                Assert(transactionTags["event_type"] == "diagnostic",
-                    "the transaction event_type tag is missing");
-                Assert(Equals(transactionData["audio_file_size_bytes"], extras["audio_file_size_bytes"]),
-                    "the transaction dropped a supplied diagnostic extra");
-                Assert((string)transactionData["raw_text"]! == "[redacted]",
-                    "the transaction sent a denied extra without redaction");
-                Assert((string)transactionData["selected_input_device_name"]! == "[redacted]",
-                    "the transaction sent the renamable microphone name");
-                Assert(Equals(transactionData["provider_display_name"], "HyperWhisper Cloud")
-                        && Equals(transactionData["backend_stt_provider"], "elevenlabs/scribe_v2"),
-                    "the transaction redacted an allow-listed String extra");
-                Assert(transactionData["audio_file_exists"] is false,
-                    "the transaction dropped a Bool extra");
-                Assert(transactionData["diagnostic_fingerprint"] is string[] transactionFingerprint
-                        && transactionFingerprint.SequenceEqual(fingerprint),
-                    "the transaction did not retain the diagnostic fingerprint as data");
-                Assert((string)transactionData["diagnostic_message"]! ==
-                        "Windows transcription no-speech diagnostic",
-                    "the transaction did not retain the stable diagnostic message");
             });
 
             Run("TranscriptionDiagnosticsService device selection: explicit selection is distinguishable from startup-first", () =>
@@ -8042,106 +7980,9 @@ internal static class Program
                     $"provider_attempt_ms should be unknown with no diagnostics, got {extras["provider_attempt_ms"]}");
                 Assert(tags["provider_attempt_source"] == TranscriptionAttemptSource.Unknown,
                     $"provider_attempt_source should be unknown with no diagnostics, got {tags["provider_attempt_source"]}");
-
-                foreach (var key in extras.Keys.Where(k => k != "selected_input_device_name"))
-                {
-                    Assert(!SentryService.IsRedactedExtraKey(key),
-                        $"extra '{key}' will arrive at Sentry as [redacted] - add it to SentryService.AllowedExtraKeys if its value is never user content");
-                }
-                Assert(SentryService.IsRedactedExtraKey("selected_input_device_name"),
-                    "the renamable microphone name is on the Sentry allow-list");
             });
 
-            Run("SentryService extras are an exact allow-list: unknown and content keys lose a String, keep a Bool or a number (#1890)", () =>
-            {
-                // The filter used to be a substring deny-list (transcript / text /
-                // prompt / path). It is now an exact, case-sensitive lookup in
-                // SentryService.AllowedExtraKeys, the rule macOS shipped in #1887. This
-                // drives BOTH real consumers - the transaction path and beforeSend - so
-                // the shared helper cannot drift from either.
-                var unknownKey = "brand_new_field_nobody_reviewed";
-                var payload = new Dictionary<string, object>(StringComparer.Ordinal)
-                {
-                    ["transcript"] = "what the user said",
-                    ["text"] = "what the user typed",
-                    ["prompt"] = "the user's system prompt",
-                    [unknownKey] = "anything at all",
-                    ["unknown_flag"] = true,
-                    ["unknown_count"] = 42,
-                    ["unknown_ratio"] = 0.25,
-                    ["unknown_list"] = new[] { "a", "b" },
-                    // Built from the LIVE account name: the transaction path reads the
-                    // live environment, as the account-name transaction test below does.
-                    ["error_message"] = $"Load failed for {Environment.UserName}'s profile",
-                    ["audio_file_extension"] = ".wav",
-                    // Exact lookup: a case variant of an allowed key, and a key that
-                    // merely CONTAINS an allowed key, are both unknown. The case variant
-                    // has no lower-case twin here, because the transaction data
-                    // dictionary is case-insensitive and a twin would overwrite it.
-                    ["Audio_Duration_Seconds"] = "case variant",
-                    ["audio_file_extension_raw"] = "superstring",
-                    ["status_text"] = "superstring",
-                };
-
-                var (_, data) = SentryService.PrepareDiagnosticTransactionData(
-                    "allow-list probe", payload, null, null);
-
-                foreach (var key in new[]
-                         {
-                             "transcript", "text", "prompt", unknownKey, "unknown_list",
-                             "Audio_Duration_Seconds", "audio_file_extension_raw", "status_text",
-                         })
-                {
-                    Assert(Equals(data[key], "[redacted]"),
-                        $"transaction extra '{key}' was not redacted: {data[key]}");
-                }
-                Assert(data["unknown_flag"] is true, "a Bool under an unknown key did not survive");
-                Assert(data["unknown_count"] is 42, "an int under an unknown key did not survive");
-                Assert(data["unknown_ratio"] is 0.25, "a double under an unknown key did not survive");
-                Assert(Equals(data["audio_file_extension"], ".wav"), "an allow-listed String was redacted");
-                Assert(Equals(data["error_message"], "Load failed for %USER%'s profile"),
-                    $"an allow-listed String did not go through the identifier rewrite: {data["error_message"]}");
-
-                // The predicate itself: no Contains, no case folding.
-                Assert(SentryService.IsRedactedExtraKey("transcript"), "transcript is allowed");
-                Assert(SentryService.IsRedactedExtraKey("text"), "text is allowed");
-                Assert(SentryService.IsRedactedExtraKey("prompt"), "prompt is allowed");
-                Assert(SentryService.IsRedactedExtraKey("audio_path"), "audio_path is allowed");
-                Assert(SentryService.IsRedactedExtraKey(unknownKey), "an unknown key is allowed");
-                Assert(SentryService.IsRedactedExtraKey("ERROR_MESSAGE"), "the lookup is case-insensitive");
-                Assert(SentryService.IsRedactedExtraKey("Audio_Duration_Seconds"), "the lookup is case-insensitive");
-                Assert(SentryService.IsRedactedExtraKey("audio_file_extension_raw"), "the lookup matches a superstring");
-                Assert(SentryService.IsRedactedExtraKey("extension"), "the lookup matches a substring");
-                Assert(!SentryService.IsRedactedExtraKey("audio_file_extension"), "an allow-listed key is redacted");
-                Assert(!SentryService.IsRedactedExtraKey("error_message"), "error_message is redacted");
-
-                // beforeSend, through the seam with fixed identifiers.
-                var sentryEvent = new Sentry.SentryEvent();
-                foreach (var (key, value) in payload)
-                {
-                    sentryEvent.SetExtra(key, value);
-                }
-                sentryEvent.SetExtra("error_message", @"Load failed at C:\Users\testaccount\AppData");
-                SentryService.SanitizeEvent(sentryEvent, @"C:\Users\testaccount", null, "testaccount");
-
-                foreach (var key in new[]
-                         {
-                             "transcript", "text", "prompt", unknownKey, "unknown_list",
-                             "Audio_Duration_Seconds", "audio_file_extension_raw", "status_text",
-                         })
-                {
-                    Assert(Equals(sentryEvent.Extra[key], "[redacted]"),
-                        $"event extra '{key}' was not redacted: {sentryEvent.Extra[key]}");
-                }
-                Assert(sentryEvent.Extra["unknown_flag"] is true, "beforeSend redacted a Bool under an unknown key");
-                Assert(sentryEvent.Extra["unknown_count"] is 42, "beforeSend redacted an int under an unknown key");
-                Assert(sentryEvent.Extra["unknown_ratio"] is 0.25, "beforeSend redacted a double under an unknown key");
-                Assert(Equals(sentryEvent.Extra["audio_file_extension"], ".wav"), "beforeSend redacted an allow-listed String");
-                Assert(Equals(sentryEvent.Extra["error_message"], @"Load failed at %USERPROFILE%\AppData"),
-                    $"beforeSend did not rewrite the identifiers in an allow-listed String: {sentryEvent.Extra["error_message"]}");
-            });
-
-            Run("SentryService.RedactUserIdentifiers strips the Windows account name but keeps the HRESULT and the assembly name", () =>
+            Run("UserPathRedactor.RedactUserIdentifiers strips the Windows account name but keeps the HRESULT and the assembly name", () =>
             {
                 // HYPERWHISPER-Y5 / -YF / -Z1 carried three real Windows account names
                 // in the Sentry issue TITLE. beforeSend only ever rewrote Extra, and it
@@ -8159,7 +8000,7 @@ internal static class Program
                 const string message =
                     @"Could not load file or assembly 'C:\Users\testaccount\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.dll'. An Application Control policy has blocked this file. (0x800711C7)";
 
-                var redacted = SentryService.RedactUserIdentifiers(
+                var redacted = UserPathRedactor.RedactUserIdentifiers(
                     message,
                     @"C:\Users\testaccount",
                     @"C:\Users\testaccount\AppData\Local",
@@ -8186,7 +8027,7 @@ internal static class Program
                 // values, which would leave production broken with a green suite. The
                 // profile directory is not a substring of the bare account name, so only
                 // the account-name step fires here and the result is deterministic.
-                Assert(SentryService.RedactUserIdentifiers(Environment.UserName) == "%USER%",
+                Assert(UserPathRedactor.RedactUserIdentifiers(Environment.UserName) == "%USER%",
                     "the live-environment entry point does not redact the current account name");
 
                 // ROUND 1, FINDING 2 + 3. The three-pass string.Replace this replaced
@@ -8217,7 +8058,7 @@ internal static class Program
                          })
                 {
                     var profile = $@"C:\Users\{account}";
-                    var forAccount = SentryService.RedactUserIdentifiers(
+                    var forAccount = UserPathRedactor.RedactUserIdentifiers(
                         $@"Could not load file or assembly '{profile}\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.dll'. An Application Control policy has blocked this file. (0x800711C7)",
                         profile,
                         $@"{profile}\AppData\Local",
@@ -8252,7 +8093,7 @@ internal static class Program
                          })
                 {
                     var profile = $@"C:\Users\{account}";
-                    var forAccount = SentryService.RedactUserIdentifiers(
+                    var forAccount = UserPathRedactor.RedactUserIdentifiers(
                         $@"Could not load file or assembly '{profile}\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.dll'. An Application Control policy has blocked this file. (0x800711C7)",
                         profile,
                         $@"{profile}\AppData\Local",
@@ -8265,29 +8106,29 @@ internal static class Program
                 // ROUND 2, FINDING 2. WHAT THE RULE BUYS. Every one of these shipped
                 // the account name under the round-1 boundary set, and the first is
                 // the issue TITLE itself.
-                Assert(SentryService.RedactUserIdentifiers(
+                Assert(UserPathRedactor.RedactUserIdentifiers(
                         @"Access to the path 'C:\Users\bob\Documents\bob.docx' is denied.",
                         @"C:\Users\bob",
                         null,
                         "bob")
                     == @"Access to the path '%USERPROFILE%\Documents\%USER%.docx' is denied.",
                     "a dot does not bound the account name, so it survived in a file name");
-                Assert(SentryService.RedactUserIdentifiers("Bob.AirPods", null, null, "bob")
+                Assert(UserPathRedactor.RedactUserIdentifiers("Bob.AirPods", null, null, "bob")
                     == "%USER%.AirPods", "a dotted device name still carries the account name");
-                Assert(SentryService.RedactUserIdentifiers("bob@corp.com", null, null, "bob")
+                Assert(UserPathRedactor.RedactUserIdentifiers("bob@corp.com", null, null, "bob")
                     == "%USER%@corp.com", "an @ does not bound the account name");
-                Assert(SentryService.RedactUserIdentifiers("Headset (Bob's AirPods)", null, null, "bob")
+                Assert(UserPathRedactor.RedactUserIdentifiers("Headset (Bob's AirPods)", null, null, "bob")
                     == "Headset (%USER%'s AirPods)", "a parenthesis does not bound the account name");
 
                 // char.IsLetterOrDigit, not an ASCII range: a CJK account name has to
                 // be bounded by the same rule as a Latin one, and has to be safe from
                 // a false match inside a longer CJK word. An ASCII-only test would
                 // pass either way, so both halves are here.
-                Assert(SentryService.RedactUserIdentifiers("C:\\Users\\\u7530\u4e2d\\Documents\\x.wav", null, null, "\u7530\u4e2d")
+                Assert(UserPathRedactor.RedactUserIdentifiers("C:\\Users\\\u7530\u4e2d\\Documents\\x.wav", null, null, "\u7530\u4e2d")
                     == @"C:\Users\%USER%\Documents\x.wav", "a CJK account name is not redacted");
-                Assert(SentryService.RedactUserIdentifiers("\u7530\u4e2d-PC", null, null, "\u7530\u4e2d")
+                Assert(UserPathRedactor.RedactUserIdentifiers("\u7530\u4e2d-PC", null, null, "\u7530\u4e2d")
                     == "%USER%-PC", "a CJK account name is not redacted beside a hyphen");
-                Assert(SentryService.RedactUserIdentifiers("\u7530\u4e2d\u5cf6", null, null, "\u7530\u4e2d")
+                Assert(UserPathRedactor.RedactUserIdentifiers("\u7530\u4e2d\u5cf6", null, null, "\u7530\u4e2d")
                     == "\u7530\u4e2d\u5cf6", "a CJK account name was rewritten inside a longer CJK word");
 
                 // The token itself, for the account names that are SUBSTRINGS OF THE
@@ -8300,7 +8141,7 @@ internal static class Program
                 foreach (var account in new[] { "User", "USER", "file", "Profile", "PRO" })
                 {
                     var profile = $@"C:\Users\{account}";
-                    var forAccount = SentryService.RedactUserIdentifiers(
+                    var forAccount = UserPathRedactor.RedactUserIdentifiers(
                         $@"Saved to {profile}\Documents\recording.wav",
                         profile,
                         @"D:\CacheRoot\Local",
@@ -8316,14 +8157,14 @@ internal static class Program
                 // both be served by one rule: the first is under the profile and
                 // outside local-app-data, the second is a local-app-data directory
                 // redirected to another drive, which no profile prefix reaches.
-                Assert(SentryService.RedactUserIdentifiers(
+                Assert(UserPathRedactor.RedactUserIdentifiers(
                         @"Saved to C:\Users\testaccount\Documents\recording.wav",
                         @"C:\Users\testaccount",
                         @"D:\CacheRoot\Local",
                         "testaccount")
                     == @"Saved to %USERPROFILE%\Documents\recording.wav",
                     "the user-profile directory is no longer redacted on its own");
-                Assert(SentryService.RedactUserIdentifiers(
+                Assert(UserPathRedactor.RedactUserIdentifiers(
                         @"Saved to D:\CacheRoot\Local\HyperWhisper\hyperwhisper.db",
                         @"C:\Users\testaccount",
                         @"D:\CacheRoot\Local",
@@ -8348,14 +8189,14 @@ internal static class Program
                 // what still catches "bobby"... nothing: "bob" inside "bobby" is
                 // bounded on the left by \ and on the right by 'b', so it correctly
                 // does not fire either, and the second account's path is left alone.
-                Assert(SentryService.RedactUserIdentifiers(
+                Assert(UserPathRedactor.RedactUserIdentifiers(
                         @"Failed to read C:\Users\bob\AppData\LocalLow\NVIDIA\x.log",
                         @"C:\Users\bob",
                         @"C:\Users\bob\AppData\Local",
                         "bob")
                     == @"Failed to read %USERPROFILE%\AppData\LocalLow\NVIDIA\x.log",
                     "the local-app-data rule matched with no trailing boundary and mangled LocalLow");
-                Assert(SentryService.RedactUserIdentifiers(
+                Assert(UserPathRedactor.RedactUserIdentifiers(
                         @"Failed to read C:\Users\bobby\Documents\x.wav",
                         @"C:\Users\bob",
                         @"C:\Users\bob\AppData\Local",
@@ -8364,7 +8205,7 @@ internal static class Program
                     "the profile rule took a bite out of a second account's directory name");
                 // The trailing boundary must not cost a directory that ends the
                 // string, which is the shape a log line uses most.
-                Assert(SentryService.RedactUserIdentifiers(
+                Assert(UserPathRedactor.RedactUserIdentifiers(
                         @"Log directory: C:\Users\bob\AppData\Local",
                         @"C:\Users\bob",
                         @"C:\Users\bob\AppData\Local",
@@ -8373,7 +8214,7 @@ internal static class Program
                     "a directory at the end of the string is no longer redacted");
                 // ...and a directory followed by anything else still loses the account
                 // name, through the bare-name rule if not through the directory rule.
-                Assert(!SentryService.RedactUserIdentifiers(
+                Assert(!UserPathRedactor.RedactUserIdentifiers(
                         @"Log directory: 'C:\Users\bob' was unreadable",
                         @"C:\Users\bob",
                         null,
@@ -8393,427 +8234,42 @@ internal static class Program
                 // These cases pin the contract instead: a blank identifier is inert,
                 // whichever slot it arrives in. They are a contract pin, not a proof,
                 // EXCEPT the lone-space one below, which is killable and says so.
-                Assert(SentryService.RedactUserIdentifiers(
+                Assert(UserPathRedactor.RedactUserIdentifiers(
                         message,
                         @"C:\Users\testaccount",
                         @"C:\Users\testaccount\AppData\Local",
                         "")
                     == ExpectedRedactedLoadFailure,
                     "a zero-length account name is not inert");
-                Assert(SentryService.RedactUserIdentifiers(@"C:\Users\testaccount\r.wav", null, null, "")
+                Assert(UserPathRedactor.RedactUserIdentifiers(@"C:\Users\testaccount\r.wav", null, null, "")
                     == @"C:\Users\testaccount\r.wav",
                     "a zero-length account name with no other identifier must leave the value alone");
-                Assert(SentryService.RedactUserIdentifiers(message, "", null, "   ") == message,
+                Assert(UserPathRedactor.RedactUserIdentifiers(message, "", null, "   ") == message,
                     "a blank identifier is not skipped");
                 // The `IsNullOrWhiteSpace` guard is what keeps a whitespace-only
                 // account name out of the rule set, and this is the one value that
                 // proves it: a lone space satisfies BOTH boundaries (start of string
                 // on the left, end of string on the right), so an unguarded rule
                 // would rewrite it. Every longer value bounds it away.
-                Assert(SentryService.RedactUserIdentifiers(" ", null, null, " ") == " ",
+                Assert(UserPathRedactor.RedactUserIdentifiers(" ", null, null, " ") == " ",
                     "a whitespace-only account name rewrote a whitespace value");
-                Assert(SentryService.RedactUserIdentifiers(message, @"C:\", @"C:\", null) == message,
+                Assert(UserPathRedactor.RedactUserIdentifiers(message, @"C:\", @"C:\", null) == message,
                     "a bare drive root is not skipped");
 
                 // Where the BARE name earns its keep, now that it is bounded. A
                 // Bluetooth endpoint is named after its owner (Apple writes the curly
                 // apostrophe), Windows offers to build the computer name out of the
                 // account name, and neither is under any directory this knows.
-                Assert(SentryService.RedactUserIdentifiers("Bob's AirPods", null, null, "bob")
+                Assert(UserPathRedactor.RedactUserIdentifiers("Bob's AirPods", null, null, "bob")
                     == "%USER%'s AirPods", "an apostrophe does not bound the account name");
-                Assert(SentryService.RedactUserIdentifiers("Bob\u2019s AirPods", null, null, "bob")
+                Assert(UserPathRedactor.RedactUserIdentifiers("Bob\u2019s AirPods", null, null, "bob")
                     == "%USER%\u2019s AirPods", "a curly apostrophe does not bound the account name");
-                Assert(SentryService.RedactUserIdentifiers("BOB-PC", null, null, "bob")
+                Assert(UserPathRedactor.RedactUserIdentifiers("BOB-PC", null, null, "bob")
                     == "%USER%-PC", "a hyphen does not bound the account name");
-                Assert(SentryService.RedactUserIdentifiers(@"\\fileserver\bob\shared", null, null, "bob")
+                Assert(UserPathRedactor.RedactUserIdentifiers(@"\\fileserver\bob\shared", null, null, "bob")
                     == @"\\fileserver\%USER%\shared", "a UNC share does not carry the account name out");
-                Assert(SentryService.RedactUserIdentifiers("bobsled team", null, null, "bob")
+                Assert(UserPathRedactor.RedactUserIdentifiers("bobsled team", null, null, "bob")
                     == "bobsled team", "a longer word starting with the account name was rewritten");
-            });
-
-            Run("SentryService.SanitizeEvent rewrites every field of an error event that can carry the account name", () =>
-            {
-                // ROUND 1, FINDING 5 (half of it). The suite pinned the helper's string
-                // behaviour and NOTHING about which fields beforeSend applies it to:
-                // the exception value, the message, the extras, the tags and the server
-                // name could each be dropped with the suite still green. The other half
-                // - that this is what SetBeforeSend is actually wired to - is the
-                // envelope case below, which needs the real SDK.
-                const string message =
-                    @"Could not load file or assembly 'C:\Users\testaccount\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.dll'. An Application Control policy has blocked this file. (0x800711C7)";
-
-                var sentryEvent = new Sentry.SentryEvent
-                {
-                    Message = message,
-                    ServerName = "TESTACCOUNT-PC",
-                    SentryExceptions = new[]
-                    {
-                        new Sentry.Protocol.SentryException { Type = "System.IO.FileLoadException", Value = message }
-                    }
-                };
-                sentryEvent.SetExtra("error_message", message);
-                sentryEvent.SetExtra("audio_path", message);
-                sentryEvent.SetExtra("audio_file_size_bytes", 48128);
-                sentryEvent.SetTag("selected_input_device_name", "Testaccount's AirPods");
-                sentryEvent.SetTag("component", "transcription");
-
-                // ROUND 2, FINDING 1. AttachStacktrace is on by design, so the SDK's
-                // own DebugStackTrace adds one debug image per managed module with
-                // CodeFile = module.FullyQualifiedName - and setup-x64.iss installs
-                // per-user, under %LOCALAPPDATA%\Programs\HyperWhisper. On the very
-                // HYPERWHISPER-Y5 envelope this PR exists to fix, the title read
-                // "%LOCALAPPDATA%\Programs\..." while debug_meta carried
-                // "C:\Users\bob\AppData\Local\Programs\HyperWhisper\HyperWhisper.dll".
-                // They are redacted, not dropped: the module file name is what
-                // symbolicates a frame, and #932 keeps the assembly simple name.
-                sentryEvent.DebugImages = new List<Sentry.Protocol.DebugImage>
-                {
-                    new()
-                    {
-                        Type = "pe_dotnet",
-                        CodeFile = @"C:\Users\testaccount\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.dll",
-                        DebugFile = @"C:\Users\testaccount\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.pdb",
-                        DebugId = "a13b911b-469d-47a0-8fd2-407b06d2a12d-c0b21b72"
-                    }
-                };
-
-                // ROUND 2, FINDING 4. Capture's default fingerprint is
-                // ["{{ default }}", message, errorType] and the caller's message can
-                // hold a path, so a redacted exception value rode beside a raw
-                // fingerprint. "{{ default }}" is Sentry's own grouping directive and
-                // must come through untouched - an account named "default" would
-                // otherwise turn it into "{{ %USER% }}".
-                sentryEvent.Fingerprint = new[] { "{{ default }}", message, "FileLoadException" };
-
-                var sanitized = SentryService.SanitizeEvent(
-                    sentryEvent,
-                    @"C:\Users\testaccount",
-                    @"C:\Users\testaccount\AppData\Local",
-                    "testaccount");
-
-                Assert(ReferenceEquals(sanitized, sentryEvent),
-                    "the sanitizer did not return the event it was given");
-                Assert(sentryEvent.DebugImages!.Single().CodeFile
-                        == @"%LOCALAPPDATA%\Programs\HyperWhisper\HyperWhisper.SharedCore.dll",
-                    $"the debug image code_file still carries the install path: {sentryEvent.DebugImages!.Single().CodeFile}");
-                Assert(sentryEvent.DebugImages!.Single().DebugFile
-                        == @"%LOCALAPPDATA%\Programs\HyperWhisper\HyperWhisper.SharedCore.pdb",
-                    $"the debug image debug_file still carries the install path: {sentryEvent.DebugImages!.Single().DebugFile}");
-                Assert(sentryEvent.DebugImages!.Single().DebugId == "a13b911b-469d-47a0-8fd2-407b06d2a12d-c0b21b72",
-                    "the debug image lost the id that makes it symbolicate");
-                Assert(sentryEvent.Fingerprint.Count == 3,
-                    "the fingerprint changed length");
-                Assert(sentryEvent.Fingerprint[0] == "{{ default }}",
-                    $"Sentry's grouping directive was rewritten: {sentryEvent.Fingerprint[0]}");
-                Assert(sentryEvent.Fingerprint[1] == ExpectedRedactedLoadFailure,
-                    $"the fingerprint still carries the account name: {sentryEvent.Fingerprint[1]}");
-                Assert(sentryEvent.Fingerprint[2] == "FileLoadException",
-                    "the fingerprint's error type was rewritten");
-
-                Assert(sentryEvent.SentryExceptions!.Single().Value == ExpectedRedactedLoadFailure,
-                    "the exception value - the Sentry issue TITLE - is not redacted");
-                Assert(sentryEvent.Message!.Message == ExpectedRedactedLoadFailure,
-                    "the event message is not redacted");
-                Assert((string)sentryEvent.Extra["error_message"]! == ExpectedRedactedLoadFailure,
-                    "a string extra is not redacted");
-                Assert((string)sentryEvent.Extra["audio_path"]! == "[redacted]",
-                    "a denied extra key is no longer replaced outright");
-                Assert(sentryEvent.Extra["audio_file_size_bytes"] is int size && size == 48128,
-                    "a non-string extra was not passed through untouched");
-                Assert(sentryEvent.Tags["selected_input_device_name"] == "%USER%'s AirPods",
-                    "a tag is not redacted - selected_input_device_name is a tag as well as an extra");
-                Assert(sentryEvent.Tags["component"] == "transcription",
-                    "an ordinary tag was rewritten");
-                Assert(sentryEvent.ServerName == "%USER%-PC",
-                    "the machine name keeps the account name Windows built it out of");
-            });
-
-            Run("SentryService.SanitizeEvent keeps Sentry's grouping directive, adds no key the event lacked, and drops an event it cannot sanitize", () =>
-            {
-                // ROUND 2, FINDING 4, the grouping half. Redacting a fingerprint
-                // changes how Sentry GROUPS. The direction it changes in is the right
-                // one - two users hitting the same fault with their own account name
-                // in the message used to get two issues and now get one - but
-                // "{{ default }}" is not data, it is the instruction that folds the
-                // SDK's own grouping in beside these parts, and an account named
-                // "default" is a legal Windows account name.
-                var directiveEvent = new Sentry.SentryEvent
-                {
-                    Fingerprint = new[] { "{{ default }}", @"C:\Users\default\x.dll" }
-                };
-
-                SentryService.SanitizeEvent(directiveEvent, @"C:\Users\default", null, "default");
-
-                Assert(directiveEvent.Fingerprint[0] == "{{ default }}",
-                    $"an account named 'default' broke Sentry's grouping directive: {directiveEvent.Fingerprint[0]}");
-                Assert(directiveEvent.Fingerprint[1] == @"%USERPROFILE%\x.dll",
-                    $"the rest of the fingerprint is not redacted: {directiveEvent.Fingerprint[1]}");
-
-                // The same trap round 1's finding 4 caught on SentryExceptions: a
-                // write-back that is inert on an event which HAS the field, and not
-                // inert on one that does not. The DebugImages half is the live one -
-                // materializing the list on an event the SDK gave none to adds a
-                // "debug_meta" key it never wrote. The Fingerprint half is a contract
-                // pin rather than a proof: SentryEvent.Fingerprint is never null in
-                // 4.12.1 and the serializer skips an empty array, so writing one back
-                // is not observable. Both are asserted; only the first is killable,
-                // and the notes say so.
-                var bareEvent = new Sentry.SentryEvent();
-                SentryService.SanitizeEvent(bareEvent, @"C:\Users\testaccount", null, "testaccount");
-
-                Assert(bareEvent.Fingerprint.Count == 0,
-                    "the sanitizer gave a fingerprint to an event that had none");
-                Assert(bareEvent.DebugImages == null,
-                    "the sanitizer gave a debug-image list to an event that had none");
-
-                // ROUND 2, FINDING 5. The remarks used to say "a throw inside
-                // beforeSend costs the whole event, so keep it that way". That is the
-                // opposite of what sentry-dotnet 4.12.1 does: SentryClient's
-                // BeforeSendInternal wraps the call in a try, the throw aborts the
-                // assignment that would have taken the sanitized result, the catch
-                // logs, and the method falls through to `return @event` - the
-                // ORIGINAL. So an escaping throw PUBLISHES C:\Users\bob\..., and with
-                // MaxBreadcrumbs = 0 even the SDK's own "BeforeSend callback failed"
-                // breadcrumb is dropped, so it would be silent. The sanitizer now
-                // returns null on a fault, which drops the event.
-                //
-                // A null entry in SentryExceptions is the one input that reaches a
-                // throw from outside this class - the collection is settable and the
-                // element type is a reference type.
-                var unsanitizableEvent = new Sentry.SentryEvent
-                {
-                    SentryExceptions = new Sentry.Protocol.SentryException[] { null! }
-                };
-
-                Assert(SentryService.SanitizeEvent(
-                        unsanitizableEvent,
-                        @"C:\Users\testaccount",
-                        null,
-                        "testaccount") == null,
-                    "a sanitizer fault returns an event instead of dropping it - the SDK would ship it raw");
-            });
-
-            RunAsync("SentryService's Sentry options keep the account name out of the envelope the SDK would send", async () =>
-            {
-                // ROUND 1, FINDINGS 1, 4 and 5. Nothing in this project had ever
-                // constructed a SentryEvent or run the SetBeforeSend lambda, so the
-                // whole privacy wiring could be deleted and the suite stayed green.
-                // This drives the REAL pipeline - the app's own options, an in-memory
-                // transport in place of the network - and reads the envelope that would
-                // have left the machine. It is built from THIS machine's profile
-                // directory, so it is the same case on the CI runner and on a dev box.
-                var transport = new CapturingSentryTransport();
-                var profileDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                var raw =
-                    $@"Could not load file or assembly '{profileDirectory}\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.dll'. An Application Control policy has blocked this file. (0x800711C7)";
-                var expected = SentryService.RedactUserIdentifiers(raw);
-
-                Assert(expected != raw,
-                    "the fixture does not contain this machine's profile directory, so it proves nothing");
-
-                using (Sentry.SentrySdk.Init(options =>
-                {
-                    SentryService.ConfigureSentryOptions(
-                        options,
-                        "https://0123456789abcdef0123456789abcdef@o0.ingest.sentry.io/4508",
-                        "smoketest",
-                        "hyperwhisper@0.0.0");
-
-                    // The only three departures from production, and none of them
-                    // touches privacy: nothing leaves the machine, no profiler is
-                    // loaded, and a session envelope is not mixed into the capture.
-                    options.Transport = transport;
-                    options.ProfilesSampleRate = 0;
-                    options.AutoSessionTracking = false;
-                })!)
-                {
-                    // ROUND 2, FINDINGS 1 and 4. The debug image and the fingerprint
-                    // are PLANTED, because neither can be made to carry this machine's
-                    // profile directory on demand: the SDK's own debug images point at
-                    // wherever the suite happens to be built, which on CI and on a dev
-                    // box is not under the profile, so an assertion over them alone
-                    // would pass vacuously. A planted image is merged with the SDK's
-                    // own (SentryClient merges debug images BEFORE beforeSend), so
-                    // this reads the real merged list out of the real envelope.
-                    var plantedEvent = new Sentry.SentryEvent(new FileLoadException(raw))
-                    {
-                        DebugImages = new List<Sentry.Protocol.DebugImage>
-                        {
-                            new()
-                            {
-                                Type = "pe_dotnet",
-                                CodeFile = $@"{profileDirectory}\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.dll"
-                            }
-                        }
-                    };
-
-                    // Called as a static: Program.cs deliberately does not take
-                    // `using Sentry;`, so the extension method is not in scope.
-                    Sentry.SentrySdk.CaptureEvent(
-                        plantedEvent,
-                        scope => Sentry.EventLikeExtensions.SetFingerprint(
-                            scope,
-                            new[] { "{{ default }}", raw, "FileLoadException" }));
-                    Sentry.SentrySdk.CaptureMessage(raw);
-                    await Sentry.SentrySdk.FlushAsync(TimeSpan.FromSeconds(10));
-                }
-
-                var errorEvent = transport.FindPayload(payload => payload["exception"] != null);
-                Assert(errorEvent != null, $"the SDK sent no error event at all: {transport.Dump()}");
-
-                var exceptionValue = errorEvent!["exception"]?["values"]?[0]?["value"]?.GetValue<string>();
-                Assert(exceptionValue == expected,
-                    $"beforeSend is not wired to the sanitizer - the envelope carries: {exceptionValue}");
-
-                // FINDING 1. SendDefaultPii makes the SDK's own enricher stamp
-                // Environment.UserName into event.user.username, in a processor that
-                // runs BEFORE beforeSend. A clean title and "user":{"username":"bob"}
-                // in the same envelope is still the leak this issue is about.
-                var username = errorEvent["user"]?["username"]?.GetValue<string>();
-                Assert(username == null,
-                    $"the SDK stamped a username into the event: {username}");
-
-                // The machine name rides along on SendDefaultPii. It is kept - a
-                // machine name is not an account name, and it is the only thing that
-                // tells two devices apart inside one issue - but it goes through the
-                // same redactor, because Windows offers to build a computer name out
-                // of the account name.
-                var serverName = errorEvent["server_name"]?.GetValue<string>();
-                Assert(serverName == SentryService.RedactUserIdentifiers(Environment.MachineName),
-                    $"the server name is not the redacted machine name: {serverName}");
-
-                // ROUND 2, FINDING 1, at the envelope. The round-1 case read four
-                // named keys and could not see debug_meta at all. Every code_file in
-                // the merged list is checked, not just the planted one, so an SDK
-                // image that happens to sit under the profile is covered too.
-                var debugImages = errorEvent["debug_meta"]?["images"]?.AsArray();
-                Assert(debugImages != null && debugImages.Count > 0,
-                    $"the envelope carries no debug images, so this proves nothing: {transport.Dump()}");
-
-                var plantedCodeFile = $@"{profileDirectory}\AppData\Local\Programs\HyperWhisper\HyperWhisper.SharedCore.dll";
-                var plantedCodeFileSeen = false;
-                foreach (var image in debugImages!)
-                {
-                    foreach (var key in new[] { "code_file", "debug_file" })
-                    {
-                        var path = image?[key]?.GetValue<string>();
-                        if (path == null)
-                            continue;
-
-                        Assert(path == SentryService.RedactUserIdentifiers(path),
-                            $"debug_meta.images[].{key} still carries the install path: {path}");
-                    }
-
-                    if (image?["code_file"]?.GetValue<string>()
-                        == SentryService.RedactUserIdentifiers(plantedCodeFile))
-                    {
-                        plantedCodeFileSeen = true;
-                    }
-                }
-
-                Assert(plantedCodeFileSeen,
-                    $"the planted debug image is not in the envelope, so the loop above proves nothing: {transport.Dump()}");
-
-                // ROUND 2, FINDING 4, at the envelope. The fingerprint is set on the
-                // SCOPE, which the SDK applies to the event before beforeSend runs.
-                var envelopeFingerprint = errorEvent["fingerprint"]?.AsArray();
-                Assert(envelopeFingerprint != null && envelopeFingerprint.Count == 3,
-                    $"the envelope carries no fingerprint, so this proves nothing: {transport.Dump()}");
-                Assert(envelopeFingerprint![0]?.GetValue<string>() == "{{ default }}",
-                    $"Sentry's grouping directive did not survive: {envelopeFingerprint[0]}");
-                Assert(envelopeFingerprint[1]?.GetValue<string>() == expected,
-                    $"the envelope's fingerprint still carries the account name: {envelopeFingerprint[1]}");
-
-                // "logentry" is what a SentryMessage serializes as - the protocol's
-                // own name for it, not SentryEvent.Message.
-                var messageEvent = transport.FindPayload(payload => payload["logentry"] != null);
-                Assert(messageEvent != null, $"the SDK sent no message event at all: {transport.Dump()}");
-
-                var texts = new[] { "message", "formatted" }
-                    .Select(property => messageEvent!["logentry"]?[property]?.GetValue<string>())
-                    .Where(text => text != null)
-                    .ToList();
-
-                Assert(texts.Count > 0, "the message event carried no text at all");
-                foreach (var text in texts)
-                {
-                    Assert(text == expected, $"the message event's text is not redacted: {text}");
-                }
-
-                // FINDING 4. SentryExceptions never returns null in 4.12.1, so the old
-                // write-back was a no-op on an event that HAS an exception and not a
-                // no-op on one that does not: it replaced a null backing field with an
-                // empty one and added an "exception":{"values":[]} key that the event
-                // never had.
-                Assert(messageEvent!["exception"] == null,
-                    "an exception-free event now carries an empty exception list");
-            });
-
-            Run("SentryService.PrepareDiagnosticTransactionData redacts the account name out of a transaction's tags and extras", () =>
-            {
-                // ROUND 1, FINDING 8. A transaction never reaches beforeSend, and
-                // SetBeforeSendTransaction is not configured, so this method is the
-                // whole of the privacy filter on that path - and TracesSampleRate = 1.0
-                // ships 100% of them. It key-matched and nothing else, so the no-speech
-                // diagnostic was redacted as an Issue and sent verbatim as a
-                // transaction. selected_input_device_name comes from
-                // WaveInCapabilities.ProductName, which is whatever the user named the
-                // endpoint, and a Bluetooth headset is named after its owner.
-                //
-                // Built from the LIVE account name because this method reads the live
-                // environment, exactly as CaptureDiagnosticTransaction does - which
-                // also makes it the case that fails if the live read ever breaks.
-                var deviceName = $"{Environment.UserName}'s AirPods";
-
-                var (tags, data) = SentryService.PrepareDiagnosticTransactionData(
-                    "Windows transcription no-speech diagnostic",
-                    new Dictionary<string, object>
-                    {
-                        ["selected_input_device_name"] = deviceName,
-                        ["audio_file_size_bytes"] = 48128,
-                        ["raw_text"] = "must not leave the app"
-                    },
-                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["selected_input_device_name"] = deviceName,
-                        ["component"] = "transcription"
-                    },
-                    // ROUND 2, FINDING 4 / the Codex [P1]. The caller's fingerprint
-                    // used to be written into diagnostic_fingerprint verbatim, one
-                    // line below a diagnostic_message that was carefully redacted.
-                    // Latent today - every in-repo caller passes a constant - but
-                    // CaptureDiagnosticTransaction is public and a transaction never
-                    // reaches beforeSend, so nothing downstream would have caught it.
-                    new[] { "transcription-no-speech", Environment.UserName });
-
-                // Since #1890 the device name is off the extras allow-list altogether, so
-                // the EXTRA is redacted outright; the TAG below still shows the rewrite.
-                Assert((string)data["selected_input_device_name"]! == "[redacted]",
-                    $"the transaction extra still carries the device name: {data["selected_input_device_name"]}");
-                Assert(tags["selected_input_device_name"] == "%USER%'s AirPods",
-                    $"the transaction TAG still carries the account name: {tags["selected_input_device_name"]}");
-                Assert((string)data["raw_text"]! == "[redacted]",
-                    "the transaction sent a denied extra without redaction");
-                Assert(Equals(data["audio_file_size_bytes"], 48128),
-                    "a non-string transaction extra was not passed through untouched");
-                Assert(tags["component"] == "transcription",
-                    "an ordinary transaction tag was rewritten");
-                Assert(tags["event_type"] == "diagnostic",
-                    "the transaction event_type tag is missing");
-
-                var transactionFingerprint = (string[])data["diagnostic_fingerprint"]!;
-                Assert(transactionFingerprint.Length == 2,
-                    "the transaction fingerprint changed length");
-                Assert(transactionFingerprint[0] == "transcription-no-speech",
-                    "a constant fingerprint part was rewritten");
-                // Codex's [P1] verbatim: CaptureDiagnosticTransaction(..., fingerprint:
-                // new[] { Environment.UserName }). Asserted as the exact token rather
-                // than "does not contain the name", because %USERPROFILE% contains the
-                // string "USER" and an account named "User" - Microsoft's default on a
-                // Windows dev VM image, and this dev box - would pass that test while
-                // leaking.
-                Assert(transactionFingerprint[1] == "%USER%",
-                    $"the transaction fingerprint still carries the account name: {transactionFingerprint[1]}");
             });
 
             Run("TranscriptionDiagnosticsService.ClassifyNoSpeechDiagnostic reclassifies a zero-frame recording as EmptyRecording, not no-speech", () =>
@@ -11182,1100 +10638,6 @@ internal static class Program
 
                 Assert(evt is StreamingProviderEvent.Metadata,
                     $"expected Metadata, got {evt?.GetType().Name ?? "null"}");
-            });
-
-            Run("InlineHtml turns release-note <b> into a bold run instead of literal markup", () =>
-            {
-                var runs = InlineHtml.Parse("<b>New models</b> &mdash; OpenAI gpt-transcribe and more.");
-
-                Assert(runs.Count == 2, $"expected 2 runs, got {runs.Count}");
-                Assert(runs[0] == new HtmlRun("New models", Bold: true, Italic: false),
-                    $"expected a bold lead-in, got '{runs[0]}'");
-                Assert(runs[1] == new HtmlRun(" — OpenAI gpt-transcribe and more.", Bold: false, Italic: false),
-                    $"expected the decoded remainder, got '{runs[1]}'");
-                Assert(!InlineHtml.PlainText("<b>x</b>").Contains('<'), "markup leaked into plain text");
-            });
-
-            Run("InlineHtml keeps text from tags it does not support and leaves unknown entities literal", () =>
-            {
-                Assert(InlineHtml.PlainText("<span class=\"x\">kept</span>") == "kept",
-                    "unsupported tag should be dropped but its text kept");
-                Assert(InlineHtml.PlainText("2 < 3") == "2 < 3",
-                    "an unterminated tag should be treated as text");
-                Assert(InlineHtml.PlainText("&bogus; stays") == "&bogus; stays",
-                    "an unknown entity should stay literal");
-                Assert(InlineHtml.PlainText("&lt;b&gt;escaped&lt;/b&gt;") == "<b>escaped</b>",
-                    "escaped markup must not be re-parsed as a tag");
-            });
-
-            Run("InlineHtml turns <a href> into a linked run", () =>
-            {
-                var runs = InlineHtml.Parse("See the <a href=\"https://example.com/latency\">latency page</a> now.");
-
-                Assert(runs.Count == 3, $"expected 3 runs, got {runs.Count}");
-                Assert(runs[1].Text == "latency page" && !runs[1].Bold && !runs[1].Italic
-                        && runs[1].Link?.AbsoluteUri == "https://example.com/latency",
-                    $"expected a linked label, got '{runs[1]}'");
-                Assert(runs[0].Link is null && runs[2].Link is null,
-                    "text outside the anchor should not be linked");
-
-                // Uri normalization: a bare authority gains the empty path's slash.
-                var bold = InlineHtml.Parse("<a href=\"https://example.com\"><b>bold link</b></a>");
-                Assert(bold.Count == 1 && bold[0].Bold && bold[0].Link?.AbsoluteUri == "https://example.com/",
-                    "emphasis inside a link should keep both the style and the destination");
-
-                var quoting = new[]
-                {
-                    "<A HREF='https://example.com/a' class=\"x\">x</A>",
-                    "<a class=\"x\" href=https://example.com/a>x</a>",
-                    "<a href = \"https://example.com/a\">x</a>"
-                };
-                foreach (var html in quoting)
-                {
-                    Assert(InlineHtml.Parse(html)[0].Link?.AbsoluteUri == "https://example.com/a",
-                        $"href not read from '{html}'");
-                }
-
-                Assert(InlineHtml.Parse("<a href=\"https://example.com/p?a=1&amp;b=2\">x</a>")[0].Link?.AbsoluteUri
-                        == "https://example.com/p?a=1&b=2",
-                    "escaped query separators should survive in the destination");
-            });
-
-            Run("InlineHtml links only web and mail schemes", () =>
-            {
-                var hostile = new[]
-                {
-                    "<a href=\"javascript:alert(1)\">x</a>",
-                    "<a href=\"data:text/html,<b>x</b>\">x</a>",
-                    "<a href=\"file:///etc/passwd\">x</a>",
-                    "<a href=\"/relative/path\">x</a>",
-                    "<a data-href=\"https://example.com\">x</a>",
-                    "<a>x</a>"
-                };
-
-                foreach (var html in hostile)
-                {
-                    Assert(InlineHtml.Parse(html).TrueForAll(run => run.Link is null),
-                        $"'{html}' should not produce a link");
-                    // Exactly the label, nothing else: the data: case used to leak
-                    // '">x' into the visible text because the tag scan cut at the
-                    // '>' inside the quoted href.
-                    Assert(InlineHtml.PlainText(html) == "x",
-                        $"'{html}' should render as its label alone, got '{InlineHtml.PlainText(html)}'");
-                }
-
-                Assert(InlineHtml.Parse("<a href=\"mailto:hi@example.com\">mail</a>")[0].Link?.AbsoluteUri
-                        == "mailto:hi@example.com",
-                    "mailto should stay clickable");
-
-                // An unusable href must not leak onto the text that follows it.
-                var after = InlineHtml.Parse("<a href=\"javascript:x\">label</a> after");
-                Assert(after.TrueForAll(run => run.Link is null), "link leaked past the anchor");
-            });
-
-            Run("InlineHtml reads href only in attribute-name position", () =>
-            {
-                // "preceded by whitespace" is also true inside a quoted value, so a
-                // title carrying "href=..." used to win over the real attribute.
-                Assert(InlineHtml.Parse(
-                            "<a title=\"see href=http://evil.example more\" href=\"https://real.example\">Label</a>")[0]
-                        .Link?.AbsoluteUri == "https://real.example/",
-                    "an href inside another attribute's value must not win");
-                Assert(InlineHtml.Parse("<a title=\"use href=1\" href=\"https://real\">x</a>")[0]
-                        .Link?.AbsoluteUri == "https://real/",
-                    "the real href must still be found after a shadowing value");
-                Assert(InlineHtml.Parse("<a data-href=\"https://evil.example\" href=\"https://real.example\">x</a>")[0]
-                        .Link?.AbsoluteUri == "https://real.example/",
-                    "a longer attribute name ending in 'href' must not match");
-            });
-
-            Run("InlineHtml keeps a quoted '>' inside the tag, and invents nothing on an unterminated quote", () =>
-            {
-                // A '>' in a query string used to truncate the tag, linking half the
-                // URL and spilling the rest of the markup into the visible text.
-                const string quotedAngle = "<li>Read <a href=\"https://ex.com/?q=a>b\" title=\"t\">here</a></li>";
-                var runs = InlineHtml.Parse(quotedAngle);
-                Assert(InlineHtml.PlainText(quotedAngle) == "Read here",
-                    $"markup leaked into the text: '{InlineHtml.PlainText(quotedAngle)}'");
-                Assert(runs.Count == 2 && runs[1].Text == "here",
-                    $"expected the label alone in the linked run, got {runs.Count} runs");
-
-                // An href whose quote is never closed is not a destination.
-                const string unterminated = "<a href=\"https://example.com>label</a> after";
-                Assert(InlineHtml.Parse(unterminated).TrueForAll(run => run.Link is null),
-                    "an unterminated quote should yield no link at all");
-                Assert(InlineHtml.PlainText(unterminated) == "label after",
-                    $"got '{InlineHtml.PlainText(unterminated)}'");
-            });
-
-            Run("InlineHtml does not leave a self-closing or unclosed <a> on the link stack", () =>
-            {
-                // <a …/> pushed an entry nothing ever popped, so every remaining
-                // word in the note rendered as part of the link.
-                Assert(InlineHtml.Parse("Before <a href=\"https://x.example\"/> after and more")
-                        .TrueForAll(run => run.Link is null),
-                    "a self-closing anchor must not link the text that follows it");
-
-                var selfClosed = InlineHtml.Parse("<a href=\"https://x.example\"/>after");
-                Assert(selfClosed.Count == 1 && selfClosed[0] == new HtmlRun("after", Bold: false, Italic: false),
-                    $"expected one unlinked run, got '{string.Join(", ", selfClosed)}'");
-
-                // An <a> nobody closes is bounded by the end of the fragment.
-                var unclosed = InlineHtml.Parse("<a href=\"https://x.example\">unclosed");
-                Assert(unclosed.Count == 1 && unclosed[0].Text == "unclosed"
-                        && unclosed[0].Link?.AbsoluteUri == "https://x.example/",
-                    "an unclosed anchor should still link its own label");
-            });
-
-            Run("InlineHtml treats a '/' at the end of a bare href as part of the URL", () =>
-            {
-                // Deciding "self-closing" from the raw tag's last character read
-                // every bare href ending in '/' — most URLs — as "<a …/>", and
-                // silently dropped the link.
-                var bare = InlineHtml.Parse("<a href=https://example.com/>Home</a>");
-                Assert(bare.Count == 1 && bare[0].Text == "Home"
-                        && bare[0].Link?.AbsoluteUri == "https://example.com/",
-                    $"a bare href ending in '/' lost its link: '{string.Join(", ", bare)}'");
-
-                var quoted = InlineHtml.Parse("<a href=\"https://example.com/\">Home</a>");
-                Assert(quoted.Count == 1 && quoted[0].Text == "Home"
-                        && quoted[0].Link?.AbsoluteUri == "https://example.com/",
-                    $"a quoted href ending in '/' lost its link: '{string.Join(", ", quoted)}'");
-
-                // A '/' of the tag's own still closes it, even after a bare href
-                // that ends in one.
-                const string closed = "<a href=https://example.com/ />Home and the rest";
-                Assert(InlineHtml.Parse(closed).TrueForAll(run => run.Link is null),
-                    "a genuinely self-closing anchor must link nothing");
-                Assert(InlineHtml.PlainText(closed) == "Home and the rest",
-                    $"got '{InlineHtml.PlainText(closed)}'");
-
-                // A '/' that is not the last thing in the tag is not the tag's.
-                Assert(InlineHtml.Parse("<a / href=https://example.com/>L</a>")[0].Link?.AbsoluteUri
-                        == "https://example.com/",
-                    "a '/' before a real attribute must not close the tag");
-
-                foreach (var lineBreak in new[] { "a<br>b", "a<br/>b", "a<br />b" })
-                {
-                    Assert(InlineHtml.PlainText(lineBreak) == "a\nb",
-                        $"'{lineBreak}' should be a line break, got '{InlineHtml.PlainText(lineBreak)}'");
-                }
-            });
-
-            Run("InlineHtml gives a nested <a> the innermost destination, not the outer one", () =>
-            {
-                // The inner href is rejected, so its label must lose the link
-                // rather than inherit the outer anchor's destination.
-                var runs = InlineHtml.Parse(
-                    "<a href=\"https://ok.example\">read <a href=\"javascript:x\">this</a></a>");
-
-                Assert(runs.Count == 2, $"expected 2 runs, got {runs.Count}");
-                Assert(runs[0].Text == "read " && runs[0].Link?.AbsoluteUri == "https://ok.example/",
-                    $"outer label lost its link: '{runs[0]}'");
-                Assert(runs[1].Text == "this" && runs[1].Link is null,
-                    $"inner label inherited the outer destination: '{runs[1]}'");
-            });
-
-            Run("InlineHtml leaves the space on either side of a link outside the link", () =>
-            {
-                // A space inside the linked run is underlined, tinted and
-                // clickable — it belongs outside the anchor, on whichever side
-                // of it the space was written.
-                const string opening = "<b>See</b> <a href=\"https://example.com\">here</a>";
-                var runs = InlineHtml.Parse(opening);
-
-                Assert(InlineHtml.PlainText(opening) == "See here",
-                    "the space between the two runs was lost");
-                Assert(runs.TrueForAll(run => run.Link is null || !run.Text.StartsWith(' ')),
-                    $"the space was swallowed into the link run: '{string.Join(", ", runs)}'");
-
-                // The closing side: the space in front of </a> used to be emitted
-                // as its own run still carrying the link — an extra Hyperlink with
-                // a hand cursor and a tooltip, for one blank character.
-                const string closing = "See <a href=\"https://x.example\"><b>the page</b> </a>now";
-                var closingRuns = InlineHtml.Parse(closing);
-
-                Assert(InlineHtml.PlainText(closing) == "See the page now",
-                    $"got '{InlineHtml.PlainText(closing)}'");
-                Assert(closingRuns.TrueForAll(run => run.Link is null || run.Text.Trim().Length > 0),
-                    $"a blank run still carries the link: '{string.Join(", ", closingRuns)}'");
-            });
-
-            Run("InlineHtml does not style the rest of the note after a self-closing <b/> or <i/>", () =>
-            {
-                // Self-closing was consulted for <a> only, so "<b/>" pushed a depth
-                // nothing ever popped and emboldened everything after it.
-                Assert(InlineHtml.Parse("before <b/> after").TrueForAll(run => !run.Bold),
-                    $"'<b/>' bolded the rest: '{string.Join(", ", InlineHtml.Parse("before <b/> after"))}'");
-                // Each TrueForAll is paired with the text it should have
-                // produced. TrueForAll is vacuously true on an empty or
-                // truncated list, so on its own it also passes for a parser
-                // that aborted on the self-closing tag and lost the rest.
-                Assert(InlineHtml.PlainText("before <b/> after") == "before after",
-                    $"'<b/>' lost text: '{InlineHtml.PlainText("before <b/> after")}'");
-                Assert(InlineHtml.Parse("before <i/> after").TrueForAll(run => !run.Italic),
-                    $"'<i/>' italicised the rest: '{string.Join(", ", InlineHtml.Parse("before <i/> after"))}'");
-                Assert(InlineHtml.PlainText("before <i/> after") == "before after",
-                    $"'<i/>' lost text: '{InlineHtml.PlainText("before <i/> after")}'");
-                Assert(InlineHtml.Parse("x<strong />y").TrueForAll(run => !run.Bold),
-                    "'<strong />' bolded the rest");
-                Assert(InlineHtml.PlainText("x<strong />y") == "xy",
-                    $"'<strong />' lost text: '{InlineHtml.PlainText("x<strong />y")}'");
-                Assert(InlineHtml.Parse("x<em />y").TrueForAll(run => !run.Italic),
-                    "'<em />' italicised the rest");
-                Assert(InlineHtml.PlainText("x<em />y") == "xy",
-                    $"'<em />' lost text: '{InlineHtml.PlainText("x<em />y")}'");
-
-                // The paired forms still style what they wrap.
-                Assert(InlineHtml.Parse("<b>still bold</b>")[0].Bold, "a real <b> stopped working");
-            });
-
-            Run("InlineHtml reads an apostrophe in a bare value as an ordinary character", () =>
-            {
-                // Skipping quoted values in the tag-end scan entered quote mode on
-                // any apostrophe, so the one in a bare "href=it's" paired up with
-                // the next one in the text and swallowed everything between them.
-                const string html = "<a href=it's>label</a> and <b>Ray's</b> note";
-                Assert(InlineHtml.PlainText(html) == "label and Ray's note",
-                    $"text between two apostrophes was eaten: '{InlineHtml.PlainText(html)}'");
-                Assert(InlineHtml.PlainText("<b>Ray's</b> and <i>don't</i>") == "Ray's and don't",
-                    $"got '{InlineHtml.PlainText("<b>Ray's</b> and <i>don't</i>")}'");
-
-                // A quote in value position — with or without whitespace after the
-                // '=' — still shields a '>' sitting inside the value.
-                Assert(InlineHtml.PlainText("<a href=\"https://ex.com/?q=a>b\" title=\"t\">here</a>") == "here",
-                    "a '>' inside a quoted value truncated the tag");
-                Assert(InlineHtml.PlainText("<a href = 'https://ex.com/?q=a>b'>x</a>") == "x",
-                    "a '>' inside a spaced-out quoted value truncated the tag");
-            });
-
-            Run("InlineHtml keeps the feed's href verbatim, decoding entities only", () =>
-            {
-                // The href used to be run through the whole parser to decode
-                // "&amp;", which also stripped tags and comments out of it — a
-                // valid, allow-listed, but different destination.
-                var markup = InlineHtml.Parse("<a href=\"https://ex.com/?q=<b>x</b>\">Docs</a>");
-                Assert(markup[0].Link?.AbsoluteUri != "https://ex.com/?q=x",
-                    "markup was stripped out of the destination");
-                Assert(Uri.UnescapeDataString(markup[0].Link?.AbsoluteUri ?? "") == "https://ex.com/?q=<b>x</b>",
-                    $"destination not preserved verbatim: '{markup[0].Link?.AbsoluteUri}'");
-                Assert(InlineHtml.PlainText("<a href=\"https://ex.com/?q=<b>x</b>\">Docs</a>") == "Docs",
-                    "the label changed");
-
-                var commented = InlineHtml.Parse("<a href=\"https://ex.com/<!-- c -->path\">Docs</a>");
-                Assert(commented[0].Link?.AbsoluteUri != "https://ex.com/path",
-                    "a comment was stripped out of the destination");
-
-                // Entities in the href must still decode: feeds escape query
-                // separators, and "?a=1&amp;b=2" is not a URL until they do.
-                Assert(InlineHtml.Parse("<a href=\"https://ex.com/p?a=1&amp;b=2\">x</a>")[0].Link?.AbsoluteUri
-                        == "https://ex.com/p?a=1&b=2", "&amp; stopped decoding in the href");
-                Assert(InlineHtml.Parse("<a href=\"https://ex.com/p?a=1&#38;b=2\">x</a>")[0].Link?.AbsoluteUri
-                        == "https://ex.com/p?a=1&b=2", "&#38; stopped decoding in the href");
-            });
-
-            Run("InlineHtml does not pair an unclosed value with a later tag's quote", () =>
-            {
-                // Skipping to the matching quote searched the whole fragment, so
-                // a value never closed inside its own tag paired up with the
-                // quote of a later one and everything between them — the label,
-                // its </a>, the next tag — was swallowed as one tag body.
-                const string html = "Read <a href=\"https://ex.com/latency>the page</a> for <b class=\"hl\">details</b>.";
-                var runs = InlineHtml.Parse(html);
-
-                Assert(InlineHtml.PlainText(html) == "Read the page for details.",
-                    $"text was swallowed: '{InlineHtml.PlainText(html)}'");
-                Assert(runs.TrueForAll(run => run.Link is null),
-                    $"an unterminated quote invented a destination: '{string.Join(", ", runs)}'");
-                Assert(runs.Exists(run => run.Text == "details" && run.Bold),
-                    $"the <b> after it never opened: '{string.Join(", ", runs)}'");
-                Assert(runs.TrueForAll(run => !run.Text.Contains('<') && !run.Text.Contains("href")),
-                    $"markup leaked into the text: '{string.Join(", ", runs)}'");
-
-                // A '>' inside a value that *is* closed still does not end the
-                // tag, and an apostrophe in a bare value is still ordinary text.
-                Assert(InlineHtml.PlainText("<a href=\"https://ex.com/?q=a>b\" title=\"t\">here</a>") == "here",
-                    "a '>' inside a quoted value truncated the tag");
-                Assert(InlineHtml.PlainText("<a href=it's>label</a> and <b>Ray's</b> note")
-                        == "label and Ray's note",
-                    "an apostrophe in a bare value ate the text after it");
-            });
-
-            Run("InlineHtml pops on a closing tag that also closes itself", () =>
-            {
-                // parseTag sets both flags for "</a/>", and the self-closing
-                // guard ran first, so nothing was ever popped and the rest of
-                // the note stayed linked, bold or italic.
-                const string anchor =
-                    "<a href=\"https://hyperwhisper.app/changelog\">changelog</a/>. Also faster startup.";
-                var runs = InlineHtml.Parse(anchor);
-
-                Assert(InlineHtml.PlainText(anchor) == "changelog. Also faster startup.",
-                    $"got '{InlineHtml.PlainText(anchor)}'");
-                Assert(runs.Exists(run => run.Text == "changelog" && run.Link is not null),
-                    $"the anchor's own label lost its link: '{string.Join(", ", runs)}'");
-                Assert(runs.TrueForAll(run => run.Link is null || run.Text == "changelog"),
-                    $"'</a/>' left the rest of the note linked: '{string.Join(", ", runs)}'");
-
-                const string bold = "<b>New:</b/> dictation is faster";
-                Assert(InlineHtml.Parse(bold).TrueForAll(run => !run.Bold || run.Text == "New:"),
-                    $"'</b/>' left the rest of the note bold: '{string.Join(", ", InlineHtml.Parse(bold))}'");
-                Assert(InlineHtml.Parse("<i>x</i/> y").TrueForAll(run => !run.Italic || run.Text == "x"),
-                    "'</i/>' left the rest of the note italic");
-                Assert(InlineHtml.Parse("<a href=\"https://x.example\">x</a />after")
-                        .TrueForAll(run => run.Link is null || run.Text == "x"),
-                    "'</a />' left the rest of the note linked");
-
-                // The opening self-closing forms still change no state.
-                Assert(InlineHtml.Parse("before <b/> after").TrueForAll(run => !run.Bold),
-                    "'<b/>' bolded the rest again");
-                Assert(InlineHtml.Parse("Before <a href=\"https://x.example\"/> after")
-                        .TrueForAll(run => run.Link is null),
-                    "'<a …/>' linked the rest again");
-                Assert(InlineHtml.PlainText("a<br/>b") == "a\nb", "'<br/>' stopped breaking the line");
-            });
-
-            Run("InlineHtml writes one space around an element that produces no text", () =>
-            {
-                // The pending space was committed on the opening tag and then
-                // re-armed from producedText, so an empty element was spelt with
-                // a space on each side of nothing.
-                foreach (var html in new[]
-                {
-                    "Read <a href=\"https://x.example\"><img src=\"badge.png\"></a> the docs",
-                    "Read <a href=\"https://x.example\"></a> the docs",
-                    "Read <a href=\"https://x.example\">   </a> the docs"
-                })
-                {
-                    Assert(InlineHtml.PlainText(html) == "Read the docs",
-                        $"'{html}' rendered as '{InlineHtml.PlainText(html)}'");
-                }
-
-                // Both space cases above still hold: the space in front of <a>
-                // stays outside the link, and so does the one in front of </a>.
-                const string opening = "<b>See</b> <a href=\"https://example.com\">here</a>";
-                Assert(InlineHtml.PlainText(opening) == "See here", "the opening-side space was lost");
-                Assert(InlineHtml.Parse(opening).TrueForAll(run => run.Link is null || !run.Text.StartsWith(' ')),
-                    "the opening-side space was swallowed into the link");
-
-                const string closing = "See <a href=\"https://x.example\"><b>the page</b> </a>now";
-                Assert(InlineHtml.PlainText(closing) == "See the page now", "the closing-side space was lost");
-                Assert(InlineHtml.Parse(closing).TrueForAll(run => run.Link is null || run.Text.Trim().Length > 0),
-                    "the closing-side space is inside the link again");
-            });
-
-            Run("InlineHtml keeps the element name when its own value is malformed", () =>
-            {
-                // The name was recorded after the value parse, so giving up on a
-                // malformed value on the first token discarded the element too.
-                Assert(InlineHtml.PlainText("line one<br = >line two") == "line one\nline two",
-                    $"the line break was dropped: '{InlineHtml.PlainText("line one<br = >line two")}'");
-                Assert(InlineHtml.PlainText("a<br = \"unterminated>b") == "a\nb",
-                    $"got '{InlineHtml.PlainText("a<br = \"unterminated>b")}'");
-            });
-
-            Run("InlineHtml collapses a CRLF and leaves a non-breaking space alone", () =>
-            {
-                // Whitespace is collapsed one Unicode SCALAR VALUE at a time:
-                // the unit hw-releasenotes pins for every index, scan limit and
-                // whitespace predicate on all three heads (#284, decision (b)).
-                // A CRLF is two scalars — "\r" and "\n", each of them
-                // collapsible — so it collapses like any other run of
-                // whitespace and the expectations below are the same
-                // everywhere.
-                //
-                // This file used to walk UTF-16 code units, and macOS walked
-                // graphemes, where "\r\n" is one Character equal to neither
-                // "\r" nor "\n" and had to be named outright to collapse at
-                // all. Both are gone. A non-breaking space is not collapsible
-                // whitespace on any of them.
-                Assert(InlineHtml.PlainText("line one\r\nline two") == "line one line two",
-                    $"got '{InlineHtml.PlainText("line one\r\nline two")}'");
-                Assert(InlineHtml.PlainText("a\r\n\r\n  b") == "a b",
-                    "a run of CRLFs should collapse to one space");
-                Assert(InlineHtml.PlainText("a&nbsp;b") == "a\u00A0b",
-                    $"a non-breaking space is not collapsible: '{InlineHtml.PlainText("a&nbsp;b")}'");
-            });
-
-            Run("InlineHtml leaves a numeric entity with a signed body literal", () =>
-            {
-                // The other half of decision (a) (#284), pinned in the
-                // direction this head already took: "&#+65;" and "&#x+41;"
-                // never decoded here — NumberStyles.None rejects a sign — and
-                // decoded to "A" on macOS, where UInt32(_:radix:) accepts one.
-                // The shared decoder keeps all three literal, so this cannot
-                // regress into a decode.
-                foreach (var literal in new[] { "&#+65;", "&#-65;", "&#x+41;" })
-                {
-                    Assert(InlineHtml.PlainText(literal) == literal,
-                        $"'{literal}' should stay literal, got '{InlineHtml.PlainText(literal)}'");
-                }
-
-                // The well-formed spellings still decode.
-                Assert(InlineHtml.PlainText("&#65;") == "A", "'&#65;' stopped decoding");
-                Assert(InlineHtml.PlainText("&#x41;") == "A", "'&#x41;' stopped decoding");
-            });
-
-            Run("InlineHtml leaves a numeric entity with whitespace in its body literal", () =>
-            {
-                // A DELIBERATE strictness change (#284, decision (a)).
-                // "&#x 41;" used to decode to "A" HERE, because
-                // NumberStyles.HexNumber allows leading white, and stayed
-                // literal on macOS. Nothing pinned it, no feed carries it, and
-                // this is remote input — so the shared decoder now requires the
-                // body after '#' (and after an 'x'/'X') to be nothing but
-                // digits of the radix, on both heads. ("&# 65;" and "&#65 ;"
-                // never decoded on either; they are pinned so they cannot
-                // start to.)
-                foreach (var literal in new[] { "&#x 41;", "&# 65;", "&#65 ;" })
-                {
-                    Assert(InlineHtml.PlainText(literal) == literal,
-                        $"'{literal}' should stay literal, got '{InlineHtml.PlainText(literal)}'");
-                }
-            });
-
-            Run("InlineHtmlText renders an anchor containing emphasis as one link", () =>
-            {
-                // Three runs, one destination: one Hyperlink, not three siblings
-                // with three tab stops, three tooltips and three hyperlink nodes
-                // announced to a screen reader. macOS renders this anchor as one
-                // contiguous link too.
-                const string html = "before <a href=\"https://x.com\">see <b>this</b> page</a> after";
-                var runs = InlineHtml.Parse(html);
-                Assert(runs.FindAll(run => run.Link is not null).Count == 3,
-                    $"expected 3 linked runs, got '{string.Join(", ", runs)}'");
-
-                var textBlock = new System.Windows.Controls.TextBlock();
-                InlineHtmlText.Apply(textBlock, html);
-
-                var inlines = textBlock.Inlines.ToList();
-                Assert(inlines.Count == 3, $"expected 3 inlines, got {inlines.Count}");
-                Assert(inlines[1] is System.Windows.Documents.Hyperlink,
-                    $"expected the anchor to be one Hyperlink, got {inlines[1].GetType().Name}");
-
-                var hyperlink = (System.Windows.Documents.Hyperlink)inlines[1];
-                Assert(hyperlink.NavigateUri?.AbsoluteUri == "https://x.com/",
-                    $"wrong destination: '{hyperlink.NavigateUri}'");
-                Assert(hyperlink.Inlines.Count == 3,
-                    $"expected the three runs inside one link, got {hyperlink.Inlines.Count}");
-                Assert(hyperlink.Inlines.ToList()[1] is System.Windows.Documents.Run bolded
-                        && bolded.FontWeight == FontWeights.Bold,
-                    "emphasis inside the link was lost");
-            });
-
-            Run("InlineHtmlText.Runs renders already-parsed runs and rebuilds on rebind", () =>
-            {
-                // The counterpart to Source, for callers that hold runs rather
-                // than a fragment. HomePage binds this so the Recent Updates
-                // list renders what AppcastItem parsed once, instead of
-                // re-parsing every bullet on every layout pass (#284).
-                const string html = "before <a href=\"https://x.com\">see <b>this</b> page</a> after";
-                var textBlock = new System.Windows.Controls.TextBlock();
-                InlineHtmlText.SetRuns(textBlock, InlineHtml.Parse(html));
-
-                // Identical rendering to the Source case above: one Hyperlink
-                // across the whole anchor, not three siblings.
-                var inlines = textBlock.Inlines.ToList();
-                Assert(inlines.Count == 3, $"expected 3 inlines, got {inlines.Count}");
-                Assert(inlines[1] is System.Windows.Documents.Hyperlink hyperlink
-                        && hyperlink.NavigateUri?.AbsoluteUri == "https://x.com/"
-                        && hyperlink.Inlines.Count == 3,
-                    "the anchor should render as one Hyperlink holding its three runs");
-
-                // An ItemsControl recycles containers, so a rebind must REPLACE
-                // the previous item's runs rather than append to them.
-                InlineHtmlText.SetRuns(textBlock, InlineHtml.Parse("just text"));
-                Assert(textBlock.Inlines.Count == 1,
-                    $"rebinding should rebuild the TextBlock, got {textBlock.Inlines.Count} inlines");
-
-                InlineHtmlText.SetRuns(textBlock, null);
-                Assert(textBlock.Inlines.Count == 0, "binding null should clear the TextBlock");
-            });
-
-            Run("InlineHtml.SplitBlocks replaces the update dialog's <li> walker", () =>
-            {
-                // UpdateAvailableWindow held the THIRD copy of the <li>
-                // extractor: a "<(h[23]|li|p)[^>]*>(.*?)</\1>" walker. #284
-                // collapsed all three into hw-releasenotes, keeping the most
-                // forgiving reading of each disagreement.
-                var blocks = InlineHtml.SplitBlocks(
-                    "<h2>Title</h2><p>Intro</p><ul><li>a</li></ul><h3>More</h3><p>Outro</p>");
-
-                Assert(blocks.Select(block => block.Kind).SequenceEqual(new[]
-                    {
-                        HtmlBlockKind.Heading, HtmlBlockKind.Paragraph, HtmlBlockKind.Bullet,
-                        HtmlBlockKind.Heading, HtmlBlockKind.Paragraph
-                    }),
-                    $"wrong kinds: {string.Join(", ", blocks.Select(block => block.Kind))}");
-                Assert(blocks.Select(block => RunText(block.Runs))
-                        .SequenceEqual(["Title", "Intro", "a", "More", "Outro"]),
-                    $"wrong text: {string.Join(" | ", blocks.Select(block => RunText(block.Runs)))}");
-
-                // The backreference "</\1>" needed those exact characters, so a
-                // feed writing "</li >" lost the bullet here while macOS kept
-                // it; and "[^>]*" ended the open tag at a ">" inside a quoted
-                // attribute value, leaking 'b">' into the bullet's text.
-                Assert(InlineHtml.SplitBlocks("<ul><li>one</li ><li>two</li></ul>")
-                        .Select(block => RunText(block.Runs)).SequenceEqual(["one", "two"]),
-                    "a closing tag with whitespace before its > should still close the item");
-                Assert(InlineHtml.SplitBlocks("<ul><li class=\"a>b\">kept</li></ul>")
-                        .Select(block => RunText(block.Runs)).SequenceEqual(["kept"]),
-                    "a > inside a quoted attribute should stay an attribute");
-
-                // A note that is one textless block renders nothing, rather than
-                // falling through and printing its own markup as text.
-                Assert(InlineHtml.SplitBlocks("<p>   </p>").Count == 0,
-                    "an empty block element should not trigger the line fallback");
-                Assert(InlineHtml.SplitBlocks(null).Count == 0, "null should split into no blocks");
-            });
-
-            Run("InlineHtml.SplitBlocks keeps the fallback's parse-exactly-once guard", () =>
-            {
-                // A note with no block markup is still one block per line, split
-                // on <br> and on newlines, with "-"/"*" opening a bullet.
-                var blocks = InlineHtml.SplitBlocks("Heading line<br>- first\n* second\n   \n-  spaced");
-                Assert(blocks.Select(block => RunText(block.Runs))
-                        .SequenceEqual(["Heading line", "first", "second", "spaced"]),
-                    $"wrong fallback lines: {string.Join(" | ", blocks.Select(block => RunText(block.Runs)))}");
-                Assert(blocks.Select(block => block.Kind).SequenceEqual(new[]
-                    {
-                        HtmlBlockKind.Paragraph, HtmlBlockKind.Bullet,
-                        HtmlBlockKind.Bullet, HtmlBlockKind.Bullet
-                    }),
-                    "a leading - or * should open a bullet and a plain line a paragraph");
-
-                // THE GUARD. Each fallback line keeps its own markup and is
-                // parsed exactly ONCE. Flattening the note to text and parsing
-                // the result again decoded the entities on the first pass and
-                // read the decoded result as a tag on the second — turning
-                // markup the feed ESCAPED so it would show into a live link.
-                var escaped = InlineHtml.SplitBlocks(
-                    "Write &lt;a href=\"https://evil.example\"&gt;x&lt;/a&gt; to link.");
-                Assert(escaped.Count == 1 && RunText(escaped[0].Runs)
-                        == "Write <a href=\"https://evil.example\">x</a> to link.",
-                    "escaped markup was re-read as markup instead of staying text: "
-                        + string.Join(" | ", escaped.Select(block => RunText(block.Runs))));
-                Assert(escaped.All(block => block.Runs.All(run => run.Link is null)),
-                    "escaped markup was decoded and then re-read as a live link");
-
-                // And the other half of the same guard: a REAL anchor on a
-                // fallback line still reaches the renderer as a link, which the
-                // flattening pass used to drop.
-                var anchored = InlineHtml.SplitBlocks("see <a href=\"https://example.com/x\">the page</a>");
-                Assert(anchored.SelectMany(block => block.Runs)
-                        .Any(run => run.Link?.AbsoluteUri == "https://example.com/x"),
-                    "a real anchor in the fallback lost its link");
-            });
-
-            Run("AppcastItem.BulletPoints are parsed runs, keeping emphasis and dropping empty items", () =>
-            {
-                var item = new AppcastItem
-                {
-                    ReleaseNotes = "<ul><li><b>Bold lead</b> — detail.</li><li class=\"x\">  </li>"
-                                 + "<li>Plain bullet.</li></ul>"
-                };
-
-                // THIS ASSERTION CHANGED IN #284, and it is the only one in this
-                // block that may. BulletPoints was a List<string> of raw <li>
-                // inner HTML that the renderer re-parsed per bullet, per layout
-                // pass; the <li> extraction and the inline parse now happen
-                // once, together, in the shared core. The input and the answer
-                // it stands for are unchanged.
-                Assert(item.BulletPoints.Count == 2, $"expected 2 bullets, got {item.BulletPoints.Count}");
-                Assert(item.BulletPoints[0].Count == 2,
-                    $"expected the first bullet to split into 2 runs, got {item.BulletPoints[0].Count}");
-                Assert(item.BulletPoints[0][0] == new HtmlRun("Bold lead", Bold: true, Italic: false),
-                    $"expected a bold lead-in, got '{item.BulletPoints[0][0]}'");
-                Assert(item.BulletPoints[0][1] == new HtmlRun(" — detail.", Bold: false, Italic: false),
-                    $"expected the plain remainder, got '{item.BulletPoints[0][1]}'");
-                Assert(RunText(item.BulletPoints[1]) == "Plain bullet.",
-                    $"got '{RunText(item.BulletPoints[1])}'");
-
-                // A note that opens with the list has no title: a <b> inside the
-                // first bullet emphasises that bullet, it is not a heading.
-                Assert(!item.HasReleaseTitle && item.ReleaseTitle.Count == 0,
-                    $"a note opening with <ul> should have no title, got '{RunText(item.ReleaseTitle)}'");
-            });
-
-            Run("AppcastItem takes the first <h2> as the release title — #284 decision (c)", () =>
-            {
-                // The Windows feed's shape, unchanged: appcast-windows.xml opens
-                // every entry with "<h2>What's New in X</h2>". All 30 live
-                // entries were replayed through the shared core and produced the
-                // same title and bullets this head renders today.
-                var item = new AppcastItem
-                {
-                    ReleaseNotes = "<h2>What's New in 1.11.0</h2>\n<ul>\n"
-                                 + "<li>Links are now clickable.</li>\n</ul>"
-                };
-
-                Assert(RunText(item.ReleaseTitle) == "What's New in 1.11.0",
-                    $"got '{RunText(item.ReleaseTitle)}'");
-                Assert(item.HasReleaseTitle, "HasReleaseTitle should be true when there is a title");
-                Assert(item.BulletPoints.Select(RunText).SequenceEqual(["Links are now clickable."]),
-                    $"wrong bullets: {string.Join(" | ", item.BulletPoints.Select(RunText))}");
-            });
-
-            Run("AppcastItem matches the title heading case-insensitively and with attributes", () =>
-            {
-                // The half of decision (c) this head did not have: the old regex
-                // was "<h2>(.*?)</h2>" — case-SENSITIVE, and no attributes
-                // allowed — so "<H2>" or '<h2 id="x">' showed no title at all.
-                var item = new AppcastItem
-                {
-                    ReleaseNotes = "<H2 id=\"whats-new\">Title</H2><ul><li>x</li></ul>"
-                };
-
-                Assert(RunText(item.ReleaseTitle) == "Title", $"got '{RunText(item.ReleaseTitle)}'");
-            });
-
-            Run("AppcastItem takes only an <h2> by name, never an <h3>", () =>
-            {
-                // An <h2> anywhere in the note wins, which is what the old regex
-                // did. An <h3> is a sub-heading in the body and never becomes a
-                // title on its own — the update dialog still renders it as a
-                // heading block.
-                var withH3 = new AppcastItem { ReleaseNotes = "<ul><li>x</li></ul><h3>Details</h3>" };
-                Assert(!withH3.HasReleaseTitle,
-                    $"an <h3> should not become the title, got '{RunText(withH3.ReleaseTitle)}'");
-
-                var withH2 = new AppcastItem { ReleaseNotes = "<ul><li>x</li></ul><h2>Late heading</h2>" };
-                Assert(RunText(withH2.ReleaseTitle) == "Late heading",
-                    $"got '{RunText(withH2.ReleaseTitle)}'");
-            });
-
-            Run("AppcastItem gains the pre-list title branch, with its emphasis", () =>
-            {
-                // The other half of decision (c), which this head gains: with no
-                // <h2>, the title is the content before the first <ul> (or the
-                // first <li> when there is no <ul>). That is the macOS feed's
-                // shape, where the heading is a bare <b>…</b> — so the title
-                // carries emphasis and ReleaseTitle is runs, not a string.
-                var item = new AppcastItem
-                {
-                    ReleaseNotes = "<b>Enhanced Audio Recording</b>\n<ul>\n<li>Improved stability</li>\n</ul>"
-                };
-
-                Assert(RunText(item.ReleaseTitle) == "Enhanced Audio Recording",
-                    $"got '{RunText(item.ReleaseTitle)}'");
-                Assert(item.ReleaseTitle.All(run => run.Bold),
-                    "the title's emphasis should survive — this is why it is runs and not a string");
-                Assert(item.BulletPoints.Select(RunText).SequenceEqual(["Improved stability"]),
-                    "the pre-list heading must not be read as a bullet");
-
-                // A note with no notes at all has neither, and an empty <h2>
-                // falls through to this branch instead of hiding a real title.
-                var empty = new AppcastItem { ReleaseNotes = "" };
-                Assert(!empty.HasReleaseTitle && empty.BulletPoints.Count == 0 && !empty.HasReleaseNotes,
-                    "an empty note should have no title and no bullets");
-                var emptyHeading = new AppcastItem
-                {
-                    ReleaseNotes = "<h2>  </h2>Real title<ul><li>x</li></ul>"
-                };
-                Assert(RunText(emptyHeading.ReleaseTitle) == "Real title",
-                    $"a textless <h2> should not suppress the title, got '{RunText(emptyHeading.ReleaseTitle)}'");
-            });
-
-            Run("AppcastItem keeps a bullet whose closing tag carries whitespace", () =>
-            {
-                // The "</li >" disagreement, resolved macOS's way. This head's
-                // "</li>" regex did not match at all, so the run of bullets
-                // collapsed into one item carrying raw markup; macOS searched
-                // for the prefix "</li" and closed the item. Dropping a bullet
-                // the feed wrote is the worse failure, so the tokenizer wins.
-                var item = new AppcastItem { ReleaseNotes = "<ul><li>one</li ><li>two</li></ul>" };
-
-                Assert(item.BulletPoints.Select(RunText).SequenceEqual(["one", "two"]),
-                    $"got: {string.Join(" | ", item.BulletPoints.Select(RunText))}");
-            });
-
-            Run("AppcastItem parses the release notes ONCE, at construction", () =>
-            {
-                // STRUCTURAL, and the point of the phase. ReleaseTitle and
-                // BulletPoints were getters that re-ran a Regex — and then a
-                // second parse per bullet in the renderer — on every read, and
-                // WPF reads a bound property on every layout pass of every card
-                // in the Recent Updates list. They are cached fields now, filled
-                // by the ReleaseNotes init accessor.
-                //
-                // Reference equality is what proves it: a getter that re-parsed
-                // would hand back a fresh list every time. macOS pins the same
-                // property with Mirror, which reports stored properties only.
-                var item = new AppcastItem { ReleaseNotes = "<b>Title</b><ul><li>one</li></ul>" };
-
-                Assert(ReferenceEquals(item.ReleaseTitle, item.ReleaseTitle),
-                    "ReleaseTitle re-parses on every read");
-                Assert(ReferenceEquals(item.BulletPoints, item.BulletPoints),
-                    "BulletPoints re-parses on every read");
-                Assert(ReferenceEquals(item.BulletPoints[0], item.BulletPoints[0]),
-                    "each bullet's runs re-parse on every read");
-
-                // And the cached values are the parsed ones, not empty defaults.
-                Assert(RunText(item.ReleaseTitle) == "Title" && item.ReleaseTitle[0].Bold,
-                    $"got '{RunText(item.ReleaseTitle)}'");
-                Assert(item.BulletPoints.Select(RunText).SequenceEqual(["one"]),
-                    $"got: {string.Join(" | ", item.BulletPoints.Select(RunText))}");
-
-                // An item built without ReleaseNotes never runs the accessor, so
-                // the defaults must still be usable rather than null.
-                var bare = new AppcastItem { Version = "1.0.0" };
-                Assert(!bare.HasReleaseTitle && bare.BulletPoints.Count == 0,
-                    "an item with no ReleaseNotes should have empty title and bullets");
-            });
-
-            Run("AppcastItem's cached lists are read-only for real, not just in the declared type", () =>
-            {
-                // Copy() shares these lists by reference with every copy, and
-                // its remarks call that safe. It is only safe if the lists
-                // cannot be written through: an IReadOnlyList<T> whose runtime
-                // type is a List<T> downcasts, and one caller doing that would
-                // mutate the note every other copy is rendering. The old
-                // getters handed back a fresh list per read and could not be
-                // corrupted that way, so this is a guarantee the parse-once
-                // change has to replace rather than drop.
-                //
-                // A wrapper, not a copy — the point of the change is to parse
-                // once, not to clone per read, so reference identity per read
-                // (asserted above) still has to hold.
-                var item = new AppcastItem { ReleaseNotes = "<b>Title</b><ul><li>one</li><li>two</li></ul>" };
-
-                foreach (var (name, list) in new (string, object)[]
-                {
-                    ("ReleaseTitle", item.ReleaseTitle),
-                    ("BulletPoints", item.BulletPoints),
-                    ("BulletPoints[0]", item.BulletPoints[0]),
-                    ("BulletPoints[1]", item.BulletPoints[1]),
-                    ("a bare item's ReleaseTitle", new AppcastItem().ReleaseTitle),
-                    ("a bare item's BulletPoints", new AppcastItem().BulletPoints),
-                })
-                {
-                    Assert(list is not List<HtmlRun> && list is not List<IReadOnlyList<HtmlRun>>,
-                        $"{name} downcasts to a writable List<T> ({list.GetType().Name})");
-                    Assert(list is System.Collections.IList { IsReadOnly: true },
-                        $"{name} is writable through IList ({list.GetType().Name})");
-                }
-
-                // The copy shares the very same lists, so the guarantee travels
-                // with it rather than being re-established per copy.
-                var copy = item.Copy();
-                Assert(ReferenceEquals(copy.BulletPoints, item.BulletPoints),
-                    "Copy() no longer shares the parsed bullets");
-            });
-
-            // =================================================================
-            // AppcastService — the XML→items step, shared with macOS (#353)
-            //
-            // The service is a facade now: XDocument in, raw HwAppcastFeedEntry
-            // values out in document order, one AppcastSelectReleases call, and
-            // a map back to AppcastItem. Which field the version comes from,
-            // which entries are dropped, how duplicates collapse and how the
-            // list is ordered are decided in hw-releasenotes for this head and
-            // macOS both.
-            //
-            // These checks pin the FACADE WIRING, not the rules — the rules have
-            // their own tests in Rust. The differential below is the one that
-            // matters to a user: the live feed must still produce exactly the
-            // list this head shipped before the change.
-            // =================================================================
-
-            Run("AppcastService replays the live appcast-windows.xml to the same releases as before #353", () =>
-            {
-                var doc = System.Xml.Linq.XDocument.Load(LiveWindowsAppcastPath());
-                var itemCount = doc.Descendants("item").Count();
-
-                // No absolute count is pinned here. Every release adds an
-                // arch-paired pair of <item>s to the live feed, so a pinned
-                // number fails the next time the app ships — which is what
-                // happened when 1.12.0 landed. The oracle is the differential
-                // below: whatever the feed holds, the two pipelines must agree.
-                // A floor keeps the differential from passing on an empty file.
-                Assert(itemCount >= 10, $"the live feed carries only {itemCount} items — too few to be the real feed");
-
-                var actual = AppcastService.SelectReleases(doc);
-                var baseline = SelectReleasesTheWayMainDid(doc);
-
-                Assert(baseline.Count >= 5, $"the pre-#353 pipeline yields only {baseline.Count} releases");
-                // The arch pairs collapse: fewer releases come out than items
-                // went in. That is the dedupe rule doing its work, stated
-                // without naming a number the next release would move.
-                Assert(baseline.Count < itemCount,
-                    $"{itemCount} items produced {baseline.Count} releases — the arch pairs did not collapse");
-                Assert(actual.Count == baseline.Count,
-                    $"expected {baseline.Count} releases, got {actual.Count}");
-
-                for (var i = 0; i < baseline.Count; i++)
-                {
-                    Assert(actual[i].Version == baseline[i].Version,
-                        $"release {i}: expected version '{baseline[i].Version}', got '{actual[i].Version}'");
-                    Assert(actual[i].PubDate == baseline[i].PubDate,
-                        $"release {i} ({baseline[i].Version}): expected {baseline[i].PubDate:o}, got {actual[i].PubDate:o}");
-                    Assert(actual[i].PubDate.Kind == baseline[i].PubDate.Kind,
-                        $"release {i}: DateTimeKind changed from {baseline[i].PubDate.Kind} to {actual[i].PubDate.Kind}"
-                            + " — FormattedDate renders the value as it stands, so this shifts every displayed date");
-                    Assert(actual[i].FormattedDate == baseline[i].FormattedDate,
-                        $"release {i}: the rendered date changed from '{baseline[i].FormattedDate}' to '{actual[i].FormattedDate}'");
-                    // Trimmed, and deliberately: the shared step trims the
-                    // <description> (macOS already did), where this head used
-                    // to hand the CDATA's raw .Value straight to the parser.
-                    // Inert — the block parser skips leading whitespace before
-                    // <h2> — so the RENDERED note below has to be identical.
-                    Assert(actual[i].ReleaseNotes == baseline[i].ReleaseNotes.Trim(),
-                        $"release {i} ({baseline[i].Version}): the release-notes HTML changed by more than trimming");
-                    Assert(RunText(actual[i].ReleaseTitle) == RunText(baseline[i].ReleaseTitle),
-                        $"release {i} ({baseline[i].Version}): the rendered title changed from "
-                            + $"'{RunText(baseline[i].ReleaseTitle)}' to '{RunText(actual[i].ReleaseTitle)}'");
-                    Assert(actual[i].BulletPoints.Select(RunText)
-                            .SequenceEqual(baseline[i].BulletPoints.Select(RunText)),
-                        $"release {i} ({baseline[i].Version}): the rendered bullets changed");
-                }
-
-                // The newest release is index 0, which is the only thing
-                // IsLatest means — and the reason the flag stays native. Stated
-                // as "index 0 holds the largest date", not as a version literal,
-                // so the next release does not fail this.
-                Assert(actual[0].PubDate == actual.Max(r => r.PubDate),
-                    $"the top release is '{actual[0].Version}'@{actual[0].PubDate:o}, which is not the newest");
-                Assert(actual.Select(r => r.PubDate).SequenceEqual(actual.Select(r => r.PubDate).OrderByDescending(d => d)),
-                    "the returned list is not newest-first");
-            });
-
-            Run("AppcastService re-applies no selection rule of its own", () =>
-            {
-                // Document order deliberately disagrees with date order, and
-                // there is a duplicate version whose FIRST entry has no notes.
-                // Only the shared pipeline's order — filter, then dedupe, then
-                // sort — gives the answer below. A leftover .Where/.GroupBy/
-                // .OrderByDescending in the facade produces a different list.
-                var doc = System.Xml.Linq.XDocument.Parse("""
-                    <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-                      <channel>
-                        <title>HyperWhisper for Windows</title>
-                        <item>
-                          <title>2.0.0 (ARM64)</title>
-                          <pubDate>Tue, 06 Jan 2026 00:00:00 +0000</pubDate>
-                          <sparkle:version>2.0.0</sparkle:version>
-                          <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
-                          <description>   </description>
-                        </item>
-                        <item>
-                          <title>2.0.0 (x64)</title>
-                          <pubDate>Tue, 06 Jan 2026 00:00:00 +0000</pubDate>
-                          <sparkle:version>2.0.0</sparkle:version>
-                          <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
-                          <description>&lt;ul&gt;&lt;li&gt;kept&lt;/li&gt;&lt;/ul&gt;</description>
-                        </item>
-                        <item>
-                          <title>3.0.0 (x64)</title>
-                          <pubDate>Fri, 06 Feb 2026 00:00:00 +0000</pubDate>
-                          <sparkle:version>3.0.0</sparkle:version>
-                          <sparkle:shortVersionString>3.0.0</sparkle:shortVersionString>
-                          <description>&lt;ul&gt;&lt;li&gt;newest&lt;/li&gt;&lt;/ul&gt;</description>
-                        </item>
-                        <item>
-                          <title>1.0.0 (x64)</title>
-                          <pubDate>Mon, 06 Apr 2026 00:00:00 +0000</pubDate>
-                          <sparkle:version>1.0.0</sparkle:version>
-                          <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
-                          <sparkle:releaseNotesLink>https://example.com/notes.html</sparkle:releaseNotesLink>
-                          <description>&lt;ul&gt;&lt;li&gt;never rendered&lt;/li&gt;&lt;/ul&gt;</description>
-                        </item>
-                      </channel>
-                    </rss>
-                    """);
-
-                var releases = AppcastService.SelectReleases(doc);
-
-                // 1.0.0 is dropped despite being newest and carrying a
-                // <description>: a releaseNotesLink means the notes live
-                // somewhere the card cannot fetch.
-                Assert(releases.Select(r => r.Version).SequenceEqual(["3.0.0", "2.0.0"]),
-                    $"got: {string.Join(", ", releases.Select(r => r.Version))}");
-
-                // Filter-before-dedupe: the empty-<description> 2.0.0 came
-                // first in the document. Dedupe-before-filter would have kept
-                // it and then dropped the whole version.
-                Assert(RunText(releases[1].BulletPoints[0]) == "kept",
-                    $"expected the second 2.0.0 entry to survive, got '{RunText(releases[1].BulletPoints[0])}'");
-
-                // The <channel><title> must not leak in as a version.
-                Assert(releases.All(r => r.Version != "HyperWhisper for Windows"),
-                    "the channel title was read as a version");
-            });
-
-            Run("AppcastService maps the shared epoch to a LOCAL DateTime, so no displayed date shifts", () =>
-            {
-                // The old DateTime.TryParse on an offset-bearing string returned
-                // Kind = Local, and FormattedDate renders the value as it
-                // stands. UtcDateTime here would silently move every date in
-                // the Recent Updates list by the machine's UTC offset.
-                const string pubDate = "Sun, 16 Aug 2026 04:17:53 +0000";
-                var doc = System.Xml.Linq.XDocument.Parse(
-                    "<rss xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"><channel><item>"
-                    + "<title>9.9.9 (x64)</title><pubDate>" + pubDate + "</pubDate>"
-                    + "<sparkle:version>9.9.9</sparkle:version>"
-                    + "<sparkle:shortVersionString>9.9.9</sparkle:shortVersionString>"
-                    + "<description>&lt;ul&gt;&lt;li&gt;x&lt;/li&gt;&lt;/ul&gt;</description>"
-                    + "</item></channel></rss>");
-
-                var release = AppcastService.SelectReleases(doc).Single();
-
-                DateTime.TryParse(pubDate, CultureInfo.InvariantCulture, out var expected);
-                Assert(release.PubDate == expected,
-                    $"expected {expected:o} (Kind={expected.Kind}), got {release.PubDate:o} (Kind={release.PubDate.Kind})");
-                Assert(release.PubDate.Kind == DateTimeKind.Local,
-                    $"expected DateTimeKind.Local, got {release.PubDate.Kind}");
-
-                // An unparseable date is epoch 0, and the entry SURVIVES rather
-                // than being dropped or stamped with "now" — it just sorts last.
-                var broken = System.Xml.Linq.XDocument.Parse(
-                    "<rss xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"><channel><item>"
-                    + "<title>9.9.9 (x64)</title><pubDate>not a date</pubDate>"
-                    + "<sparkle:version>9.9.9</sparkle:version>"
-                    + "<sparkle:shortVersionString>9.9.9</sparkle:shortVersionString>"
-                    + "<description>&lt;ul&gt;&lt;li&gt;x&lt;/li&gt;&lt;/ul&gt;</description>"
-                    + "</item></channel></rss>");
-                var brokenRelease = AppcastService.SelectReleases(broken).Single();
-                Assert(brokenRelease.PubDate == DateTimeOffset.FromUnixTimeSeconds(0).LocalDateTime,
-                    $"expected the Unix epoch for an unparseable pubDate, got {brokenRelease.PubDate:o}");
-            });
-
-            Run("The appcast date parse no longer depends on CurrentCulture — #353's user-visible fix", () =>
-            {
-                // MEASURED, not asserted from reading the source. `main` called
-                // DateTime.TryParse(pubDateStr, out var pubDate) with no
-                // CultureInfo and no DateTimeStyles, so the feed's English
-                // RFC 2822 day and month names were read through whatever
-                // culture the user's Windows is set to.
-                const string sample = "Wed, 02 Sep 2026 12:06:28 +0000";
-                const long sampleEpoch = 1788350788L;   // 2026-09-02T12:06:28Z
-
-                var original = CultureInfo.CurrentCulture;
-                var measurements = new List<(string Culture, bool MainOk, long MainTicks,
-                    long? Shared, int SharedCount, string SharedTopVersion, long SharedTopTicks,
-                    int MainCount, string MainTopVersion, long MainTopTicks, string MainFormatted)>();
-                try
-                {
-                    foreach (var name in new[] { "en-US", "en-GB", "de-DE", "fr-FR", "ja-JP", "ar-SA", "th-TH", "ru-RU" })
-                    {
-                        CultureInfo.CurrentCulture = new CultureInfo(name);
-
-                        // main's call, verbatim: no CultureInfo, no DateTimeStyles.
-                        var mainOk = DateTime.TryParse(sample, out var mainValue);
-
-                        // The shared path, through the same FFI entry point the
-                        // facade uses.
-                        var shared = uniffi.hyperwhisper_core.HyperwhisperCoreMethods.AppcastParsePubDate(sample);
-
-                        // And the whole live feed, end to end, under this culture.
-                        var doc = System.Xml.Linq.XDocument.Load(LiveWindowsAppcastPath());
-                        var live = AppcastService.SelectReleases(doc);
-                        var mainLive = SelectReleasesTheWayMainDid(doc);
-
-                        // What the card would actually SHOW under main. Guarded,
-                        // because this is itself a finding: FormattedDate is
-                        // PubDate.ToString("MMM d, yyyy"), and a DateTime.MinValue
-                        // — which is what main's failed parse leaves behind —
-                        // cannot be formatted at all in a calendar that does not
-                        // reach back to year 1.
-                        string mainFormatted;
-                        try
-                        {
-                            mainFormatted = mainLive.Count > 0 ? mainLive[0].FormattedDate : "(none)";
-                        }
-                        catch (Exception ex)
-                        {
-                            mainFormatted = "THREW " + ex.GetType().Name;
-                        }
-
-                        // Ticks, not formatted strings: formatting under the
-                        // culture being measured is the very thing that can
-                        // throw, and this list must survive to be printed.
-                        measurements.Add((name, mainOk, mainValue.Ticks, shared,
-                            live.Count,
-                            live.Count > 0 ? live[0].Version : "(none)",
-                            live.Count > 0 ? live[0].PubDate.Ticks : 0,
-                            mainLive.Count,
-                            mainLive.Count > 0 ? mainLive[0].Version : "(none)",
-                            mainLive.Count > 0 ? mainLive[0].PubDate.Ticks : 0,
-                            mainFormatted));
-                    }
-                }
-                finally
-                {
-                    CultureInfo.CurrentCulture = original;
-                }
-
-                // Print BEFORE asserting: the measurement is the point, and a
-                // failed assertion further down must not swallow it.
-                static string Day(long ticks) =>
-                    new DateTime(ticks).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-
-                foreach (var m in measurements)
-                {
-                    Console.WriteLine($"       [measured] {m.Culture,-5}"
-                        + $" main.TryParse={(m.MainOk ? "ok" : "FAILED")}->{Day(m.MainTicks)}"
-                        + $" | shared={m.Shared}"
-                        + $" | live main: {m.MainCount} rel, top {m.MainTopVersion}@{Day(m.MainTopTicks)}, shows '{m.MainFormatted}'"
-                        + $" | live shared: {m.SharedCount} rel, top {m.SharedTopVersion}@{Day(m.SharedTopTicks)}");
-                }
-
-                // THE CLAIM: the shared parse is the same number in every
-                // culture, and the live feed comes out the same list. Asserted
-                // regardless of what main happens to do — main's columns above
-                // are recorded, not relied on.
-                // The live-feed columns are compared to the FIRST culture, not to
-                // a pinned count and version. That is the stronger claim — every
-                // culture agrees — and it survives the feed gaining a release,
-                // which a pinned "15 releases, top 1.11.0" did not.
-                var reference = measurements[0];
-                Assert(reference.SharedCount >= 5,
-                    $"the live feed produced only {reference.SharedCount} releases — too few to be the real feed");
-
-                foreach (var m in measurements)
-                {
-                    Assert(m.Shared == sampleEpoch,
-                        $"AppcastParsePubDate returned {m.Shared} under {m.Culture}, expected {sampleEpoch}"
-                            + " — the shared parse must not depend on CurrentCulture");
-                    Assert(m.SharedCount == reference.SharedCount,
-                        $"the live feed produced {m.SharedCount} releases under {m.Culture}, but"
-                            + $" {reference.SharedCount} under {reference.Culture}");
-                    Assert(m.SharedTopVersion == reference.SharedTopVersion && m.SharedTopTicks == reference.SharedTopTicks,
-                        $"under {m.Culture} the newest release came out as {m.SharedTopVersion}@{Day(m.SharedTopTicks)},"
-                            + $" but as {reference.SharedTopVersion}@{Day(reference.SharedTopTicks)} under {reference.Culture}");
-
-                    // And the card renders. Under ar-SA this is what main could
-                    // not do, because a failed parse leaves DateTime.MinValue
-                    // and the Umm al-Qura calendar starts in 1900.
-                    CultureInfo.CurrentCulture = new CultureInfo(m.Culture);
-                    try
-                    {
-                        var doc = System.Xml.Linq.XDocument.Load(LiveWindowsAppcastPath());
-                        var rendered = AppcastService.SelectReleases(doc)[0].FormattedDate;
-                        Assert(!string.IsNullOrWhiteSpace(rendered),
-                            $"FormattedDate came out blank under {m.Culture}");
-                    }
-                    finally
-                    {
-                        CultureInfo.CurrentCulture = original;
-                    }
-                }
-            });
-
-            Run("A wrong day-of-week in the feed no longer collapses a release to 1/1/0001", () =>
-            {
-                // 02 Sep 2026 is a Wednesday. The live feed's own comment warns
-                // that a wrong day-of-week "causes date to parse as 0001-01-01
-                // and crashes the UI" — because DateTime.TryParse VALIDATES the
-                // redundant token. The shared parser ignores it, so a typo in
-                // the day name is no longer a broken release card.
-                const string wrongDay = "Mon, 02 Sep 2026 12:06:28 +0000";
-                var mainOk = DateTime.TryParse(wrongDay, CultureInfo.InvariantCulture, out var mainValue);
-                var shared = uniffi.hyperwhisper_core.HyperwhisperCoreMethods.AppcastParsePubDate(wrongDay);
-
-                Console.WriteLine($"       [measured] wrong day-of-week: main parsed={mainOk} value={mainValue:yyyy-MM-dd} | shared={shared}");
-
-                Assert(shared == 1788350788L,
-                    $"the shared parser should ignore the day-of-week token, got {shared}");
             });
 
             Run("Every cloudTierEligible catalog id has a CloudAccuracyTier case", () =>
@@ -24731,17 +23093,15 @@ internal static class Program
                 try
                 {
                     property.SetValue(data, null);
-                    Assert(service.EnableErrorLogging,
-                        "error reports are now OFF on a profile that never touched the setting. "
-                        + "That is a deliberate privacy change, not a refactor: mintlify-help/"
-                        + "data-privacy.mdx and mintlify-help/general-settings.mdx both state the "
-                        + "setting is ON by default, and both have to change with it.");
+                    Assert(!service.EnableErrorLogging,
+                        "legacy EnableErrorLogging flag must default to false when Sentry is removed");
 
-                    // And the setter still works in the direction a user needs, which is
-                    // the half of the promise the page is actually about.
+                    property.SetValue(data, true);
+                    Assert(service.EnableErrorLogging,
+                        "EnableErrorLogging setter/getter should still preserve explicit true values");
                     property.SetValue(data, false);
                     Assert(!service.EnableErrorLogging,
-                        "turning the setting off does not take - the documented opt-out does nothing");
+                        "EnableErrorLogging setter/getter should still preserve explicit false values");
                 }
                 finally
                 {
@@ -27390,7 +25750,6 @@ internal static class Program
             MonoFoldMidFrameChecks.RunAll(Run);
             ParakeetGuiLoadReloadChecks.RunAll(Run);
             TranscriptionRetryHandlerChecks.RunAll(Run);
-            UpdateMessageWindowChecks.RunAll(Run);
             WindowIconDpiChecks.RunAll(Run, EnsureSmokeApplication);
 
             // Issue #738: LicenseNetworkService over a scripted HttpClient (its internal
@@ -27707,13 +26066,8 @@ internal static class Program
                 }
             });
 
-            Run("startup network gating (#3): appcast and cloud warmup respect auto-update and license state", () =>
+            Run("startup network gating (#3): cloud warmup respects license state", () =>
             {
-                Assert(!MainViewModel.ShouldLoadRecentReleasesOnStartup(false),
-                    "startup appcast fetch must be skipped when CheckForUpdatesAutomatically is false");
-                Assert(MainViewModel.ShouldLoadRecentReleasesOnStartup(true),
-                    "startup appcast fetch should run when CheckForUpdatesAutomatically is true");
-
                 var cloudMode = new Mode { ProviderType = "cloud", CloudProvider = "hyperwhisper" };
                 var localMode = new Mode { ProviderType = "local" };
 
@@ -28936,66 +27290,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// The tag-free text of a run sequence — what the old assertions got by
-    /// calling <c>InlineHtml.PlainText</c> on a block's inner HTML, now that the
-    /// blocks arrive already parsed (#284).
-    /// </summary>
-    private static string RunText(IReadOnlyList<HtmlRun> runs)
-        => string.Concat(runs.Select(run => run.Text));
-
-    /// <summary>
-    /// The live Windows appcast, copied next to the test binary from
-    /// <c>nextjs/public/appcast-windows.xml</c> — the very file the shipped app
-    /// fetches over HTTP.
-    /// </summary>
-    private static string LiveWindowsAppcastPath()
-        => Path.Combine(AppContext.BaseDirectory, "appcast-windows.xml");
-
-    /// <summary>
-    /// The pre-#353 XML→items pipeline, copied verbatim off <c>main</c>'s
-    /// <c>AppcastService.GetRecentReleasesAsync</c>.
-    /// </summary>
-    /// <remarks>
-    /// The differential oracle, and the reason this dead code lives in the test
-    /// project rather than nowhere: #353's claim is that moving the selection
-    /// rules into the shared core changes nothing a Windows user sees, and the
-    /// only way to show that is to run both pipelines over the real feed and
-    /// compare. Keep it byte-for-byte as it was — including the bare
-    /// <c>DateTime.TryParse</c> with no <see cref="CultureInfo"/>, which is the
-    /// culture dependence the change removes and which the culture check
-    /// measures directly.
-    /// </remarks>
-    private static List<AppcastItem> SelectReleasesTheWayMainDid(System.Xml.Linq.XDocument doc)
-    {
-        System.Xml.Linq.XNamespace sparkle = "http://www.andymatuschak.org/xml-namespaces/sparkle";
-
-        return doc.Descendants("item")
-            .Select(item =>
-            {
-                var version = item.Element(sparkle + "version")?.Value
-                              ?? item.Element(sparkle + "shortVersionString")?.Value
-                              ?? "";
-                var pubDateStr = item.Element("pubDate")?.Value ?? "";
-                DateTime.TryParse(pubDateStr, out var pubDate);
-                var releaseNotes = item.Element(sparkle + "releaseNotesLink") != null
-                    ? ""
-                    : item.Element("description")?.Value ?? "";
-
-                return new AppcastItem
-                {
-                    Version = version,
-                    PubDate = pubDate,
-                    ReleaseNotes = releaseNotes
-                };
-            })
-            .Where(i => !string.IsNullOrEmpty(i.Version) && i.HasReleaseNotes)
-            .GroupBy(i => i.Version)
-            .Select(g => g.First())
-            .OrderByDescending(i => i.PubDate)
-            .ToList();
-    }
-
-    /// <summary>
     /// Compares one field of a backup-vectors.json expectation against the value the
     /// native mapper produced. JSON <c>null</c> means the field must come out null —
     /// the absent-stays-absent rule the vectors exist to pin.
@@ -29596,71 +27890,6 @@ internal static class Program
     /// </remarks>
     private const string ExpectedRedactedLoadFailure =
         @"Could not load file or assembly '%LOCALAPPDATA%\Programs\HyperWhisper\HyperWhisper.SharedCore.dll'. An Application Control policy has blocked this file. (0x800711C7)";
-
-    /// <summary>
-    /// Stands in for the network so the smoke suite can read the envelope the Sentry
-    /// SDK would have sent.
-    /// </summary>
-    /// <remarks>
-    /// An envelope is JSONL: an envelope header, then a header and a payload per
-    /// item. Every line is parsed and the caller picks the one it wants, because the
-    /// item order is the SDK's business and not something worth pinning.
-    /// </remarks>
-    private sealed class CapturingSentryTransport : Sentry.Extensibility.ITransport
-    {
-        private readonly List<string> _envelopes = new();
-
-        public async Task SendEnvelopeAsync(
-            Sentry.Protocol.Envelopes.Envelope envelope,
-            CancellationToken cancellationToken = default)
-        {
-            using var stream = new MemoryStream();
-            await envelope.SerializeAsync(stream, null, cancellationToken);
-            lock (_envelopes)
-            {
-                _envelopes.Add(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
-            }
-        }
-
-        /// <summary>Every envelope captured, for an assertion that has to explain itself.</summary>
-        public string Dump()
-        {
-            lock (_envelopes)
-            {
-                return string.Join("\n---envelope---\n", _envelopes);
-            }
-        }
-
-        public JsonObject? FindPayload(Func<JsonObject, bool> predicate)
-        {
-            lock (_envelopes)
-            {
-                foreach (var envelope in _envelopes)
-                {
-                    foreach (var line in envelope.Split('\n'))
-                    {
-                        if (string.IsNullOrWhiteSpace(line))
-                            continue;
-
-                        JsonNode? node;
-                        try
-                        {
-                            node = JsonNode.Parse(line);
-                        }
-                        catch (JsonException)
-                        {
-                            continue;
-                        }
-
-                        if (node is JsonObject payload && predicate(payload))
-                            return payload;
-                    }
-                }
-            }
-
-            return null;
-        }
-    }
 
     private const string RoutedTestKey = "test-key";
 

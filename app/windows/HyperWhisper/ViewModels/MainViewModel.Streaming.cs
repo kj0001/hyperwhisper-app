@@ -108,10 +108,6 @@ public partial class MainViewModel : ViewModelBase
         _streamingSessionGeneration++;
 
         var providerName = GetStreamingProviderDisplayName();
-        SentryService.AddBreadcrumb(
-            "streaming_start_requested",
-            "audio.streaming",
-            data: new Dictionary<string, string> { ["provider"] = providerName });
 
         _streamingAudioCapture = StreamingAudioSourceFactoryOverride?.Invoke() ?? new StreamingAudioCapture();
         _streamingAudioCapture.AudioChunkAvailable += OnStreamingAudioChunkAvailable;
@@ -148,10 +144,6 @@ public partial class MainViewModel : ViewModelBase
             LoggingService.Warn(_streamingStartCancelledByUser
                 ? "StartStreamingRecordingAsync: Streaming start cancelled by user"
                 : "StartStreamingRecordingAsync: Streaming connection timed out");
-            SentryService.AddBreadcrumb(
-                _streamingStartCancelledByUser ? "streaming_start_cancelled" : "streaming_start_timeout",
-                "audio.streaming",
-                data: new Dictionary<string, string> { ["provider"] = providerName });
             HideOverlayRequested?.Invoke(this, EventArgs.Empty);
             await CleanupStreamingSessionAsync();
             CleanupFailedRecordingStart();
@@ -172,10 +164,6 @@ public partial class MainViewModel : ViewModelBase
         {
             var failureMessage = _streamingFailureMessage;
             LoggingService.Error($"StartStreamingRecordingAsync: Recording start failed - {ex.Message}", ex);
-            SentryService.AddBreadcrumb(
-                "streaming_start_failed",
-                "audio.streaming",
-                data: new Dictionary<string, string> { ["provider"] = providerName, ["errorType"] = ex.GetType().Name });
             HideOverlayRequested?.Invoke(this, EventArgs.Empty);
             await CleanupStreamingSessionAsync();
             CleanupFailedRecordingStart();
@@ -204,10 +192,6 @@ public partial class MainViewModel : ViewModelBase
         ShowJobStatus("recording.state.recording");
         SoundEffectsService.Instance.PlayStartSound();
         _audioEnvironmentState = AudioEnvironmentService.Instance.PrepareForRecording(audioRestoreClaim!);
-        SentryService.AddBreadcrumb(
-            "streaming_started",
-            "audio.streaming",
-            data: new Dictionary<string, string> { ["provider"] = providerName });
         RecordingDuration = TimeSpan.Zero;
         _durationTimer?.Dispose();
         _durationTimer = new System.Timers.Timer(100);
@@ -231,10 +215,6 @@ public partial class MainViewModel : ViewModelBase
         _isStoppingStreaming = true;
         _streamingStopDefersHeldSegments = true;
         LoggingService.LogPerformanceMarker("StreamingTranscriptionFlow", "StopStreamingRecordingAsync invoked");
-        SentryService.AddBreadcrumb(
-            "streaming_stop_requested",
-            "audio.streaming",
-            data: new Dictionary<string, string> { ["provider"] = GetStreamingProviderDisplayName() });
         _durationTimer?.Stop();
         _hotkeyBlocked = true;
         IsTranscribing = true;
@@ -374,14 +354,6 @@ public partial class MainViewModel : ViewModelBase
                 _pasteService?.ScheduleClipboardRestore();
             }
             HistoryService.Instance.UpdateTranscript(transcript);
-            SentryService.AddBreadcrumb(
-                "streaming_saved",
-                "audio.streaming",
-                data: new Dictionary<string, string>
-                {
-                    ["provider"] = GetStreamingProviderDisplayName(),
-                    ["durationSeconds"] = ((int)durationSeconds).ToString()
-                });
 
             // The success/copied state holds on a deferred hide, not on an await
             // here, so the finally below unblocks the hotkey at once (#983).
@@ -533,7 +505,6 @@ public partial class MainViewModel : ViewModelBase
 
         _streamingTargetLost = true;
         LoggingService.Warn("Streaming target window lost; stopping streaming session");
-        SentryService.AddBreadcrumb("streaming_target_lost", "audio.streaming");
 
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.CheckAccess())
@@ -578,7 +549,6 @@ public partial class MainViewModel : ViewModelBase
 
         _recordingDurationLimitReached = true;
         LoggingService.Warn("Recording duration limit reached; auto-stopping session");
-        SentryService.AddBreadcrumb("recording_duration_limit_reached", "audio.recording");
 
         // The async helper re-checks recording state once on the UI thread —
         // the session may have stopped between this tick and the dispatch.
@@ -612,7 +582,6 @@ public partial class MainViewModel : ViewModelBase
         // session end, and the dispatched toast must observe it too.
         _streamingFailureMessage = Loc.S("errors.streamingDurationLimit");
         LoggingService.Warn("Streaming duration limit reached; stopping session");
-        SentryService.AddBreadcrumb("streaming_duration_limit_reached", "audio.streaming");
 
         DispatchToUi(() =>
         {
@@ -658,7 +627,6 @@ public partial class MainViewModel : ViewModelBase
         _streamingFailureMessage = message;
         StatusText = Loc.S("status.failed", message);
         LoggingService.Error($"Streaming provider error: {message}");
-        SentryService.AddBreadcrumb("streaming_provider_error", "audio.streaming");
 
         if (_isStreamingSession && IsRecording)
         {
@@ -676,7 +644,6 @@ public partial class MainViewModel : ViewModelBase
         }
 
         LoggingService.Warn($"Streaming warning: {message}");
-        SentryService.AddBreadcrumb("streaming_provider_warning", "audio.streaming");
         ShowErrorToastRequested?.Invoke(this, new ErrorToastEventArgs(
             message,
             showSettingsButton: false));
@@ -694,22 +661,12 @@ public partial class MainViewModel : ViewModelBase
 
         _streamingStartCancelledByUser = true;
         LoggingService.Info("Cancelling streaming connection attempt");
-        SentryService.AddBreadcrumb("streaming_start_cancel_requested", "audio.streaming");
         _streamingStartCts?.Cancel();
     }
 
     private void OnStreamingSessionCompleted(double durationSeconds, double creditsUsed)
     {
         LoggingService.Info($"Streaming session complete: {durationSeconds:F2}s, {creditsUsed:F2} credits");
-        SentryService.AddBreadcrumb(
-            "streaming_session_complete",
-            "audio.streaming",
-            data: new Dictionary<string, string>
-            {
-                ["provider"] = GetStreamingProviderDisplayName(),
-                ["durationSeconds"] = durationSeconds.ToString("F2"),
-                ["creditsUsed"] = creditsUsed.ToString("F2")
-            });
 
         var provider = StreamingTranscriptionProviderExtensions.FromStorageValue(_settingsService.StreamingProvider);
         if (provider != StreamingTranscriptionProvider.HyperWhisperCloud)

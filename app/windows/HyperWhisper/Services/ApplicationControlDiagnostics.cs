@@ -305,17 +305,10 @@ internal static class ApplicationControlDiagnostics
     }
 
     /// <summary>
-    /// Sends a block report to Sentry once per file per process. No setting is read
-    /// here: SentryService is only initialized when the user opted in, and the
-    /// opt-out shuts it down.
+    /// No-op diagnostic reporter kept for Application Control block test seams.
+    /// Telemetry export is removed from this build.
     /// </summary>
-    internal static void SendBlockReport(BlockReport report) =>
-        SentryService.CaptureDiagnosticEvent(
-            message: report.Message,
-            extras: new(report.Extras, StringComparer.Ordinal),
-            tags: new(report.Tags, StringComparer.Ordinal),
-            fingerprint: report.Fingerprint,
-            dedupeKey: report.DedupeKey);
+    internal static void SendBlockReport(BlockReport report) { }
 
     /// <summary>
     /// The title and text of the notice. <paramref name="lookup"/> is the string
@@ -669,23 +662,7 @@ internal static class ApplicationControlDiagnostics
             });
     }
 
-    private static void ReportFailure(Payload payload)
-    {
-        if (!SettingsService.Instance.EnableErrorLogging)
-        {
-            return;
-        }
-
-        // Do not send the original exception. FileLoadException can put an installed
-        // user path in its message and FileName property. The payload retains only
-        // the exception type and HRESULT needed to identify the enforcement path.
-        SentryService.CaptureDiagnosticEvent(
-            message: "Application context classifier load failed",
-            extras: new(payload.Extras, StringComparer.Ordinal),
-            tags: new(payload.Tags, StringComparer.Ordinal),
-            fingerprint: ["application-control", "classifier-load-failed"],
-            dedupeKey: "application-control:classifier-load-failed");
-    }
+    private static void ReportFailure(Payload payload) { }
 
     private static (string Status, int? ZoneId) ReadZoneId(string path)
     {

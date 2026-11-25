@@ -133,32 +133,9 @@
                 </StackPanel>
             </Border>
 
-            <!-- Logging & Updates Card -->
+            <!-- Anonymous Speed Data Card -->
             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,20">
                 <StackPanel>
-                    <!-- Error Logging Toggle -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <StackPanel>
-                            <TextBlock Text="{loc:Loc settings.general.errorLogging.title}" FontSize="14" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock Text="{loc:Loc settings.general.errorLogging.subtitle}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                       Margin="0,2,0,0" TextWrapping="Wrap"/>
-                        </StackPanel>
-
-                        <CheckBox x:Name="ErrorLoggingCheckbox" Grid.Column="1"
-                                  VerticalAlignment="Center"
-                                  Checked="ErrorLoggingCheckbox_Checked"
-                                  Unchecked="ErrorLoggingCheckbox_Unchecked"/>
-                    </Grid>
-
-                    <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,10,0,10"/>
-
                     <!-- Anonymous Speed Data Toggle -->
                     <!-- Sharing is the default. Turning this off makes every
                          HyperWhisper Cloud transcription send X-Latency-Opt-Out: 1
@@ -186,29 +163,6 @@
                                   VerticalAlignment="Center"
                                   Checked="ShareSpeedDataCheckbox_Checked"
                                   Unchecked="ShareSpeedDataCheckbox_Unchecked"/>
-                    </Grid>
-
-                    <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,10,0,10"/>
-
-                    <!-- Auto Update Toggle -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <StackPanel>
-                            <TextBlock Text="{loc:Loc settings.general.autoUpdate.title}" FontSize="14" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock Text="{loc:Loc settings.general.autoUpdate.subtitle}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                       Margin="0,2,0,0" TextWrapping="Wrap"/>
-                        </StackPanel>
-
-                        <CheckBox x:Name="AutoUpdateCheckbox" Grid.Column="1"
-                                  VerticalAlignment="Center"
-                                  Checked="AutoUpdateCheckbox_Checked"
-                                  Unchecked="AutoUpdateCheckbox_Unchecked"/>
                     </Grid>
                 </StackPanel>
             </Border>

@@ -2,6 +2,7 @@ using System.IO;
 using System.Net.Http;
 using HyperWhisper.Localization;
 using HyperWhisper.Models;
+using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Services;
 
@@ -76,7 +77,7 @@ public class LocalLlmModelService
         LoggingService.Info("========== STARTING LOCAL LLM MODEL DOWNLOAD ==========");
         LoggingService.Info($"  Model: {model.DisplayName}");
         LoggingService.Info($"  URL: {model.DownloadUrl}");
-        LoggingService.Info($"  Destination: {SentryService.RedactUserIdentifiers(finalPath)}");
+        LoggingService.Info($"  Destination: {UserPathRedactor.RedactUserIdentifiers(finalPath)}");
         LoggingService.Info($"  Expected size: {model.Size}");
 
         using var httpClient = new HttpClient();
@@ -169,7 +170,7 @@ public class LocalLlmModelService
         {
             if (File.Exists(path))
             {
-                LoggingService.Info($"LocalLlmModelService: Deleting model at {SentryService.RedactUserIdentifiers(path)}");
+                LoggingService.Info($"LocalLlmModelService: Deleting model at {UserPathRedactor.RedactUserIdentifiers(path)}");
                 File.Delete(path);
             }
 

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Sentry;
 
 namespace HyperWhisper.Services;
 
@@ -240,74 +239,5 @@ internal static class SmartPasteDiagnostics
         // chain. Passing it again would write a second stack per failure — and on
         // the streaming path that is one extra stack per spoken sentence.
         LoggingService.Error($"SmartPasteService: {headline} failed · {summary}");
-
-        // Respect the user's opt-in before anything leaves the machine.
-        if (!SettingsService.Instance.EnableErrorLogging)
-        {
-            return;
-        }
-
-        // The streaming path pastes once per final transcript segment, so a
-        // broken target would send one event per sentence for the whole session.
-        // Report once per app run instead. The key must match the fingerprint
-        // below, or a run's first failure would silence every OTHER Sentry group
-        // for that outcome and those groups would under-count affected runs.
-        var fingerprint = new[] { "auto-paste", component, slug, attempt.TargetAppKind };
-
-        if (!MarkReportedThisRun(string.Join(":", fingerprint)))
-        {
-            return;
-        }
-
-        var extras = new Dictionary<string, object>
-        {
-            ["paste_outcome"] = slug,
-            ["paste_component"] = component,
-            ["paste_target_process"] = attempt.TargetProcessName ?? NotEvaluated,
-            ["paste_target_app_kind"] = attempt.TargetAppKind,
-            ["paste_had_captured_target"] = attempt.HadCapturedTarget,
-            ["paste_target_window_alive"] = attempt.TargetWindowAlive,
-            ["paste_target_window_minimized"] = attempt.TargetWindowMinimized,
-            ["paste_focus_ready"] = Describe(attempt.FocusReady),
-            ["paste_focus_wait_ms"] = Describe(attempt.FocusWaitMs),
-            ["paste_character_count"] = attempt.CharacterCount,
-            ["paste_hide_from_clipboard_history"] = attempt.HideFromClipboardHistory,
-            ["paste_elapsed_ms"] = attempt.ElapsedMs,
-            // Read the issue's event count as "app runs affected", not "attempts".
-            // One run reports each fingerprint at most once, by design.
-            ["paste_reported_once_per_run"] = true
-        };
-
-        // The target process is an extra, not a tag: a tag is faceted, and .exe
-        // names are effectively unbounded on Windows. The app kind carries the
-        // faceting instead, and it is the axis the paste path actually branches on.
-        var tags = new Dictionary<string, string>
-        {
-            ["component"] = component,
-            ["paste_outcome"] = slug,
-            ["paste_target_app_kind"] = attempt.TargetAppKind
-        };
-
-        var message = $"{headline} failed: {slug}";
-
-        if (exception != null)
-        {
-            SentryService.Capture(
-                exception,
-                message: message,
-                extras: extras,
-                tags: tags,
-                fingerprint: fingerprint,
-                level: IsDefect(outcome) ? SentryLevel.Error : SentryLevel.Warning);
-            return;
-        }
-
-        // No exception to attach — report it through the diagnostic-event path,
-        // which is the same shape the no-speech diagnostic already uses.
-        SentryService.CaptureDiagnosticEvent(
-            message: message,
-            extras: extras,
-            tags: tags,
-            fingerprint: fingerprint);
     }
 }

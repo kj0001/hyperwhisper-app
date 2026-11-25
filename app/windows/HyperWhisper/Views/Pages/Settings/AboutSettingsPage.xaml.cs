@@ -95,40 +95,4 @@ public partial class AboutSettingsPage : Page
             ExportDiagnosticsButton.Content = originalContent;
         }
     }
-
-    /// <summary>
-    /// Manually check for updates when user clicks button.
-    /// Disables button during check and shows loading state.
-    /// </summary>
-    private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
-    {
-        // Disable button and show loading state
-        CheckForUpdatesButton.IsEnabled = false;
-        var originalContent = CheckForUpdatesButton.Content;
-        CheckForUpdatesButton.Content = Loc.S("settings.about.checkingForUpdates");
-
-        try
-        {
-            // Trigger manual update check
-            // NetSparkle will show its own dialogs for results
-            await UpdateService.CheckForUpdatesNow();
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Error("AboutSettingsPage: Manual update check failed", ex);
-
-            // Show error dialog to user
-            WpfMessageBox.Show(
-                Loc.S("settings.about.updateCheckFailed.message", ex.Message),
-                Loc.S("settings.about.updateCheckFailed.title"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
-        finally
-        {
-            // Re-enable button and restore original text
-            CheckForUpdatesButton.IsEnabled = true;
-            CheckForUpdatesButton.Content = originalContent;
-        }
-    }
 }

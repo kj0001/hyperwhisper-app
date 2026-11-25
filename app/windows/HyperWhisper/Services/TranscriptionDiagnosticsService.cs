@@ -90,14 +90,9 @@ public static class TranscriptionDiagnosticsService
 
         var fingerprint = BuildDiagnosticFingerprint(presentation.FingerprintRoot, diagnosticStage, diagnosticSource, mode);
 
-        var dedupeKey = $"{transcriptId}:{diagnosticStage}:{diagnosticSource}:{presentation.Name}";
-
-        SentryService.CaptureDiagnosticTransaction(
-            message: presentation.Message,
-            extras: extras,
-            tags: tags,
-            fingerprint: fingerprint,
-            dedupeKey: dedupeKey);
+        LoggingService.Debug(
+            $"TranscriptionDiagnosticsService: No-speech diagnostic logged locally " +
+            $"(stage={diagnosticStage}, source={diagnosticSource}, outcome={outcome}, fingerprint={string.Join(":", fingerprint)})");
     }
 
     /// <summary>

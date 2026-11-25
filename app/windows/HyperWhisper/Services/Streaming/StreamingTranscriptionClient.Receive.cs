@@ -230,14 +230,6 @@ public sealed partial class StreamingTranscriptionClient
         };
 
         LoggingService.Warn($"StreamingTranscriptionClient: terminal server close {closeCode} ({result.CloseStatusDescription})");
-        SentryService.AddBreadcrumb(
-            "streaming_terminal_close",
-            "audio.streaming",
-            data: new Dictionary<string, string>
-            {
-                ["provider"] = _strategy.TranscriptionProviderLabel,
-                ["closeCode"] = closeCode.ToString()
-            });
         Raise(ErrorReceived, message);
         _sessionStartedTcs?.TrySetException(new InvalidOperationException(message));
     }
