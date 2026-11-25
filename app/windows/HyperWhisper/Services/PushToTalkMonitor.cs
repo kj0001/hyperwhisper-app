@@ -448,10 +448,37 @@ public sealed class PushToTalkMonitor : IDisposable, PlatformContracts.IPushToTa
         return false;
     }
 
+    internal static bool ShouldTraceKeyEvent(string eventName, bool isPartOfShortcut)
+    {
+        if ((eventName == "keyDown" || eventName == "keyUp") && !isPartOfShortcut)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    internal static string FormatTraceMessage(
+        string eventName,
+        int? vkCode,
+        PortablePttState state,
+        bool enteredViaHold,
+        bool shortcutSatisfied,
+        string sinceFirstTap,
+        string sinceLock)
+    {
+#if DEBUG
+        var keyPart = vkCode.HasValue ? $" vk={vkCode.Value}" : "";
+#else
+        var keyPart = "";
+#endif
+        return $"PushToTalkMonitor: trace {eventName}{keyPart} state={state} enteredViaHold={enteredViaHold} shortcutSatisfied={shortcutSatisfied} sinceFirstTap={sinceFirstTap} sinceLock={sinceLock}";
+    }
+
     private void TracePttEvent(string eventName, int? vkCode)
     {
-        var isPrimary = vkCode.HasValue && IsPrimaryKey(vkCode.Value);
-        if (_machine.State == PortablePttState.Idle && !isPrimary && (eventName == "keyDown" || eventName == "keyUp"))
+        var isPartOfShortcut = vkCode.HasValue && IsKeyPartOfShortcut(vkCode.Value);
+        if (!ShouldTraceKeyEvent(eventName, isPartOfShortcut))
         {
             return;
         }
@@ -459,10 +486,16 @@ public sealed class PushToTalkMonitor : IDisposable, PlatformContracts.IPushToTa
         var now = NowMs;
         string sinceFirstTap = _machine.FirstTapMs is { } firstTap ? $"{now - firstTap}ms" : "none";
         string sinceLock = _machine.LastLockMs is { } lastLock ? $"{now - lastLock}ms" : "none";
-        var keyPart = vkCode.HasValue ? $" vk={vkCode.Value}" : "";
 
         LoggingService.Debug(
-            $"PushToTalkMonitor: trace {eventName}{keyPart} state={_machine.State} enteredViaHold={_machine.EnteredViaHold} shortcutSatisfied={IsShortcutSatisfied()} sinceFirstTap={sinceFirstTap} sinceLock={sinceLock}");
+            FormatTraceMessage(
+                eventName,
+                vkCode,
+                _machine.State,
+                _machine.EnteredViaHold,
+                IsShortcutSatisfied(),
+                sinceFirstTap,
+                sinceLock));
     }
 
     private void RaiseSafe(EventHandler? evt)

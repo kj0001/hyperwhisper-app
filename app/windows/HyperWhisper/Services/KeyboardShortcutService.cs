@@ -516,6 +516,20 @@ public sealed class KeyboardShortcutService : IDisposable, PlatformContracts.IGl
     /// order, so a handler that pairs them (MainViewModel._toggleShortcutHeld)
     /// still sees a balanced pair.
     /// </summary>
+    internal static string FormatModifierOnlyTransitionLog(
+        string name,
+        KeyboardShortcut shortcut,
+        ModifierChordState before,
+        ModifierChordState after,
+        int justPressedVk)
+    {
+#if DEBUG
+        return $"KeyboardShortcutService: modifier-only '{name}' ({shortcut}) {before} -> {after} on key-down vk=0x{justPressedVk:X2}";
+#else
+        return $"KeyboardShortcutService: modifier-only '{name}' ({shortcut}) {before} -> {after} on key-down";
+#endif
+    }
+
     private void EvaluateModifierOnlyChord(
         string name,
         KeyboardShortcut shortcut,
@@ -531,7 +545,7 @@ public sealed class KeyboardShortcutService : IDisposable, PlatformContracts.IGl
             if (gate.State != before)
             {
                 LoggingService.Debug(
-                    $"KeyboardShortcutService: modifier-only '{name}' ({shortcut}) {before} -> {gate.State} on key-down vk=0x{justPressedVk:X2}");
+                    FormatModifierOnlyTransitionLog(name, shortcut, before, gate.State, justPressedVk));
             }
             return;
         }
