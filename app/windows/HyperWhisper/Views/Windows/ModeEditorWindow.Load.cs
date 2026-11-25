@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using HyperWhisper.Data.Entities;
 using HyperWhisper.Models;
 using HyperWhisper.Services;
+using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Views.Windows;
 

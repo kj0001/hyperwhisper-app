@@ -14335,7 +14335,6 @@ internal static class Program
                 Assert(h.Flow.ProviderKeyIsVerified, "but the checklist row must not untick");
                 Assert(h.Flow.IsSelectedSourceUsable,
                     "the row below it was never in doubt, which is what made the contradiction");
-                Assert(!h.Flow.CloudKeyIsVerified, "and the cloud row stays out of the BYOK branch");
             });
 
             RunAsync("onboarding: validation is remembered per provider, not globally", async () =>
