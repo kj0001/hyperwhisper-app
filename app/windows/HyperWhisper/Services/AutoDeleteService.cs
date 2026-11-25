@@ -217,30 +217,11 @@ public sealed class AutoDeleteService : IDisposable
 
             LoggingService.Info($"AutoDeleteService: Cleanup complete. Deleted {deletedCount} transcripts and {filesDeleted} audio files");
 
-            // Report to Sentry for diagnostics
-            if (Settings.EnableErrorLogging && deletedCount > 0)
-            {
-                SentryService.AddBreadcrumb(
-                    "Auto-delete cleanup completed",
-                    "auto-delete",
-                    Sentry.BreadcrumbLevel.Info,
-                    new Dictionary<string, string>
-                    {
-                        ["transcriptsDeleted"] = deletedCount.ToString(),
-                        ["filesDeleted"] = filesDeleted.ToString(),
-                        ["daysOld"] = daysOld.ToString()
-                    });
-            }
-
             return deletedCount;
         }
         catch (Exception ex)
         {
             LoggingService.Error("AutoDeleteService: Cleanup failed", ex);
-            if (Settings.EnableErrorLogging)
-            {
-                SentryService.Capture(ex, "Auto-delete cleanup failed");
-            }
 
             if (throwOnFailure)
             {

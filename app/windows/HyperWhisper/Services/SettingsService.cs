@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using HyperWhisper.Data.Entities;
 using HyperWhisper.Models;
+using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Services;
 
@@ -485,7 +486,7 @@ public partial class SettingsService
                     // so the catch below never sees it. It is as corrupt as a torn
                     // file: recover from .bak first, or the next Save() rotates this
                     // file over the only good .bak (issue #2096).
-                    LoggingService.Warn($"SettingsService: {SentryService.RedactUserIdentifiers(SettingsFilePath)} holds null, trying the backup");
+                    LoggingService.Warn($"SettingsService: {UserPathRedactor.RedactUserIdentifiers(SettingsFilePath)} holds null, trying the backup");
                     if (TryLoadBackup())
                     {
                         return;
@@ -494,7 +495,7 @@ public partial class SettingsService
                 else
                 {
                     _settings = loaded;
-                    LoggingService.Info($"SettingsService: Loaded settings from {SentryService.RedactUserIdentifiers(SettingsFilePath)}");
+                    LoggingService.Info($"SettingsService: Loaded settings from {UserPathRedactor.RedactUserIdentifiers(SettingsFilePath)}");
                     LoggingService.Debug($"SettingsService: LastSelectedModel = {_settings.LastSelectedModel}");
                 }
 
@@ -502,7 +503,7 @@ public partial class SettingsService
             }
             catch (Exception ex)
             {
-                LoggingService.Warn($"SettingsService: Failed to load settings: {SentryService.RedactUserIdentifiers(ex.Message)}");
+                LoggingService.Warn($"SettingsService: Failed to load settings: {UserPathRedactor.RedactUserIdentifiers(ex.Message)}");
 
                 // settings.json is corrupt (e.g. truncated by a crash/force-kill
                 // mid-write). Try the previous-good .bak left by File.Replace before
@@ -577,15 +578,15 @@ public partial class SettingsService
             catch (Exception restoreEx)
             {
                 LoggingService.Warn(
-                    $"SettingsService: Recovered settings into memory but failed to restore {SentryService.RedactUserIdentifiers(SettingsFilePath)}: {SentryService.RedactUserIdentifiers(restoreEx.Message)}");
+                    $"SettingsService: Recovered settings into memory but failed to restore {UserPathRedactor.RedactUserIdentifiers(SettingsFilePath)}: {UserPathRedactor.RedactUserIdentifiers(restoreEx.Message)}");
             }
 
-            LoggingService.Warn($"SettingsService: Recovered settings from {SentryService.RedactUserIdentifiers(BackupFilePath)} after corrupt settings.json");
+            LoggingService.Warn($"SettingsService: Recovered settings from {UserPathRedactor.RedactUserIdentifiers(BackupFilePath)} after corrupt settings.json");
             return true;
         }
         catch (Exception ex)
         {
-            LoggingService.Warn($"SettingsService: Failed to recover settings from backup: {SentryService.RedactUserIdentifiers(ex.Message)}");
+            LoggingService.Warn($"SettingsService: Failed to recover settings from backup: {UserPathRedactor.RedactUserIdentifiers(ex.Message)}");
             return false;
         }
     }
@@ -645,12 +646,12 @@ public partial class SettingsService
                     File.Move(tmpPath, SettingsFilePath);
                 }
 
-                LoggingService.Debug($"SettingsService: Saved settings to {SentryService.RedactUserIdentifiers(SettingsFilePath)}");
+                LoggingService.Debug($"SettingsService: Saved settings to {UserPathRedactor.RedactUserIdentifiers(SettingsFilePath)}");
                 return true;
             }
             catch (Exception ex)
             {
-                LoggingService.Error($"SettingsService: Failed to save settings: {SentryService.RedactUserIdentifiers(ex.Message)}");
+                LoggingService.Error($"SettingsService: Failed to save settings: {UserPathRedactor.RedactUserIdentifiers(ex.Message)}");
                 return false;
             }
         }

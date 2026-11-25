@@ -38,10 +38,6 @@ public sealed partial class StreamingTranscriptionClient
         }
 
         ChangeState(StreamingConnectionState.Reconnecting);
-        SentryService.AddBreadcrumb(
-            "streaming_reconnect_started",
-            "audio.streaming",
-            data: new Dictionary<string, string> { ["provider"] = _strategy.TranscriptionProviderLabel });
 
         for (var attempt = 1; attempt <= MaxReconnectAttempts; attempt++)
         {
@@ -104,14 +100,6 @@ public sealed partial class StreamingTranscriptionClient
             return false;
         }
 
-        SentryService.AddBreadcrumb(
-            "streaming_reconnect_succeeded",
-            "audio.streaming",
-            data: new Dictionary<string, string>
-            {
-                ["provider"] = _strategy.TranscriptionProviderLabel,
-                ["attempt"] = attempt.ToString()
-            });
         _reconnectsWithoutTranscript++;
         LoggingService.Info(
             $"StreamingTranscriptionClient: reconnect succeeded on attempt {attempt} " +
@@ -158,10 +146,6 @@ public sealed partial class StreamingTranscriptionClient
     // the connection is lost for good.
     private void GiveUpReconnect()
     {
-        SentryService.AddBreadcrumb(
-            "streaming_reconnect_failed",
-            "audio.streaming",
-            data: new Dictionary<string, string> { ["provider"] = _strategy.TranscriptionProviderLabel });
         Raise(ErrorReceived, "Streaming connection was lost and could not be restored.");
         _sessionStartedTcs?.TrySetException(new InvalidOperationException("Streaming connection was lost and could not be restored."));
 

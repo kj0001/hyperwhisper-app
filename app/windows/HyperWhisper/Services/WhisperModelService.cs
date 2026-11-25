@@ -3,6 +3,7 @@ using System.Net.Http;
 using HyperWhisper.Data.Entities;
 using HyperWhisper.Localization;
 using HyperWhisper.Models;
+using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Services;
 
@@ -159,7 +160,7 @@ public class WhisperModelService
         LoggingService.Info($"  Model: {model.DisplayName}");
         LoggingService.Info($"  Type: {model.Type}");
         LoggingService.Info($"  URL: {downloadUrl}");
-        LoggingService.Info($"  Destination: {SentryService.RedactUserIdentifiers(modelPath)}");
+        LoggingService.Info($"  Destination: {UserPathRedactor.RedactUserIdentifiers(modelPath)}");
         LoggingService.Info($"  Expected size: {model.Size}");
 
         using var httpClient = new HttpClient();
@@ -257,7 +258,7 @@ public class WhisperModelService
         {
             if (File.Exists(path))
             {
-                LoggingService.Info($"WhisperModelService: Deleting model at {SentryService.RedactUserIdentifiers(path)}");
+                LoggingService.Info($"WhisperModelService: Deleting model at {UserPathRedactor.RedactUserIdentifiers(path)}");
                 File.Delete(path);
             }
 

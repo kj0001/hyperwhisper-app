@@ -277,42 +277,5 @@ internal static class OptionalAssemblyGuard
         {
             return;
         }
-
-        // A degraded-mode notice must never become the next crash, so the report
-        // carries its own guard.
-        try
-        {
-            if (!SettingsService.Instance.EnableErrorLogging)
-            {
-                return;
-            }
-
-            SentryService.CaptureDiagnosticEvent(
-                message: "Optional assembly unavailable",
-                extras: new(StringComparer.Ordinal)
-                {
-                    ["optional_assembly_stage"] = stage,
-                    ["optional_assembly_outer_exception_type"] = exception.GetType().FullName ?? "unknown",
-                    ["optional_assembly_outer_hresult"] = DescribeHResult(exception.HResult),
-                    ["optional_assembly_innermost_exception_type"] = innermost.GetType().FullName ?? "unknown",
-                    ["optional_assembly_innermost_hresult"] = DescribeHResult(innermost.HResult),
-                },
-                tags: new(StringComparer.Ordinal)
-                {
-                    ["component"] = "optional_assembly",
-                    ["diagnostic_name"] = "optional_assembly_unavailable",
-                    ["optional_assembly_name"] = simpleName,
-                    ["optional_assembly_stage"] = stage,
-                },
-                fingerprint: ["optional-assembly", "unavailable", simpleName],
-                dedupeKey: $"optional-assembly:unavailable:{simpleName}");
-        }
-        catch (Exception reportException)
-        {
-            LoggingService.Error(
-                $"OptionalAssemblyGuard: Failure report failed " +
-                $"(assembly={simpleName}, exception_type={reportException.GetType().FullName}, " +
-                $"hresult={DescribeHResult(reportException.HResult)})");
-        }
     }
 }

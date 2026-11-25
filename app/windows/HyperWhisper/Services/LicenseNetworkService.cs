@@ -191,33 +191,13 @@ public sealed class LicenseNetworkService : IDisposable
 
                 if (verdictReason == NotEntitledReason)
                 {
-                    // An ordinary "this license isn't entitled" reply (lapsed,
-                    // revoked, or a mistyped/non-existent key) — log it, never
-                    // report it. Never log the license key itself.
                     LoggingService.Warn(
                         $"LicenseNetworkService: Validation rejected by server - status={code}, reason={verdictReason}, message={httpOutcome.errorMessage ?? "no message"}");
                 }
                 else
                 {
-                    // Everything else is an unexpected non-200: a different
-                    // status, an unrecognised/absent reason, or an undecodable
-                    // body. That is a genuine backend incident, not an ordinary
-                    // verdict — report it. `license_reason` as a TAG (not just an
-                    // extra) so lookup_failed / bad_request / unstated stay
-                    // separable in triage.
-                    SentryService.CaptureDiagnosticEvent(
-                        "License validation server error",
-                        extras: new Dictionary<string, object>
-                        {
-                            ["endpoint"] = request.url,
-                            ["status"] = code,
-                            ["license_reason"] = verdictReason ?? UnstatedReason
-                        },
-                        tags: new Dictionary<string, string>
-                        {
-                            ["component"] = "license",
-                            ["license_reason"] = verdictReason ?? UnstatedReason
-                        });
+                    LoggingService.Warn(
+                        $"LicenseNetworkService: Unexpected validation error - status={code}, reason={verdictReason ?? UnstatedReason}");
                 }
 
                 HyperwhisperCoreMethods.LicensePersistValidationVerdict(

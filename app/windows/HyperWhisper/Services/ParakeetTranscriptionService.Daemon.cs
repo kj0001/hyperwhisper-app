@@ -7,6 +7,7 @@ using System.IO;
 using System.Text.Json;
 using HyperWhisper.Localization;
 using HyperWhisper.Models;
+using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Services;
 
@@ -63,7 +64,7 @@ public partial class ParakeetTranscriptionService
                 // directory in it); the log file gets it without the user's identifiers
                 // (#854): the profile directory becomes %USERPROFILE%, a redirected
                 // local-app-data directory %LOCALAPPDATA%, the bare account name %USER%.
-                LoggingService.Debug($"ParakeetTranscriptionService [stderr]: {SentryService.RedactUserIdentifiers(line)}");
+                LoggingService.Debug($"ParakeetTranscriptionService [stderr]: {UserPathRedactor.RedactUserIdentifiers(line)}");
             }
         }
         catch (ObjectDisposedException)

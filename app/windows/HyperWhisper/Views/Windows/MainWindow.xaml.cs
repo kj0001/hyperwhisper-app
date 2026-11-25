@@ -28,9 +28,7 @@ public partial class MainWindow : Window
     private System.Windows.Forms.ToolStripMenuItem? _microphoneMenu;
     private System.Windows.Forms.ToolStripMenuItem? _modeMenu;
     private System.Windows.Forms.ToolStripMenuItem? _fileTranscriptionMenu;
-    private System.Windows.Forms.ToolStripMenuItem? _checkForUpdatesMenu;
     private System.Windows.Forms.ToolStripMenuItem? _runSetupAgainMenu;
-    private bool _isCheckingForUpdatesFromTray;
     private bool _shutdownStarted;
 
     /// <summary>
@@ -229,7 +227,7 @@ public partial class MainWindow : Window
             if (_shutdownStarted)
                 return;
 
-            if (SettingsService.Instance.MinimizeToTray && !UpdateService.IsUpdateShutdownRequested)
+            if (SettingsService.Instance.MinimizeToTray)
             {
                 // Minimize to tray instead of closing
                 e.Cancel = true;
@@ -525,7 +523,6 @@ public partial class MainWindow : Window
             // starting. The pending flag is left alone, so the next launch tries
             // again rather than silently skipping setup forever.
             LoggingService.Error("MainWindow: Failed to show the onboarding window", ex);
-            SentryService.Capture(ex, "Failed to show the onboarding window");
         }
         finally
         {
@@ -655,10 +652,6 @@ public partial class MainWindow : Window
             menu.Items.Add(Loc.S("settings.resources.contact.support"), null, (s, e) => OpenUrl("https://www.hyperwhisper.com/en/support"));
             menu.Items.Add(Loc.S("settings.resources.feedback"), null, (s, e) => OpenUrl("https://hyperwhisper.userjot.com"));
             menu.Items.Add("-");
-            _checkForUpdatesMenu = new System.Windows.Forms.ToolStripMenuItem(Loc.S("settings.about.checkUpdates"));
-            _checkForUpdatesMenu.Click += async (s, e) => await CheckForUpdatesFromTrayAsync();
-            menu.Items.Add(_checkForUpdatesMenu);
-            menu.Items.Add("-");
             var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "Unknown";
             menu.Items.Add(new WinForms.ToolStripLabel(Loc.S("menu.version.label", version)) { Enabled = false });
             menu.Items.Add("-");
@@ -710,46 +703,6 @@ public partial class MainWindow : Window
         finally
         {
             RefreshRecordingMenu();
-        }
-    }
-
-    private async Task CheckForUpdatesFromTrayAsync()
-    {
-        if (_isCheckingForUpdatesFromTray)
-            return;
-
-        _isCheckingForUpdatesFromTray = true;
-        var originalText = _checkForUpdatesMenu?.Text;
-
-        if (_checkForUpdatesMenu != null)
-        {
-            _checkForUpdatesMenu.Enabled = false;
-            _checkForUpdatesMenu.Text = Loc.S("settings.about.checkingForUpdates");
-        }
-
-        try
-        {
-            await UpdateService.CheckForUpdatesNow();
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Error("MainWindow: Tray manual update check failed", ex);
-
-            WpfMessageBox.Show(
-                Loc.S("settings.about.updateCheckFailed.message", ex.Message),
-                Loc.S("settings.about.updateCheckFailed.title"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
-        finally
-        {
-            if (_checkForUpdatesMenu != null)
-            {
-                _checkForUpdatesMenu.Enabled = true;
-                _checkForUpdatesMenu.Text = originalText ?? Loc.S("settings.about.checkUpdates");
-            }
-
-            _isCheckingForUpdatesFromTray = false;
         }
     }
 

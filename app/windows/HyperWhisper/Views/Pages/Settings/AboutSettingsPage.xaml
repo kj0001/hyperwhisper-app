@@ -149,46 +149,6 @@
                                 Click="ExportDiagnostics_Click"/>
                     </Grid>
                 </Border>
-
-                <Border Style="{StaticResource CardStyle}"
-                        Padding="12">
-                    <Grid MinHeight="42">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="36"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <Border Width="26"
-                                Height="26"
-                                CornerRadius="7"
-                                Background="{DynamicResource HoverBackgroundBrush}"
-                                VerticalAlignment="Center">
-                            <TextBlock Text="&#xE895;"
-                                       FontFamily="Segoe MDL2 Assets"
-                                       FontSize="13"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"/>
-                        </Border>
-
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <TextBlock Text="{loc:Loc settings.about.checkUpdates}"
-                                       FontSize="14"
-                                       FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock Text="{loc:Loc settings.about.checkUpdates.description}"
-                                       FontSize="13"
-                                       Foreground="{DynamicResource TextSecondaryBrush}"
-                                       Margin="0,2,0,0"/>
-                        </StackPanel>
-
-                        <Button x:Name="CheckForUpdatesButton"
-                                Grid.Column="2"
-                                Content="{loc:Loc settings.about.checkUpdates}"
-                                Click="CheckForUpdates_Click"/>
-                    </Grid>
-                </Border>
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

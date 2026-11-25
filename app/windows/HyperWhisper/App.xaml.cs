@@ -113,7 +113,6 @@ public partial class App : WpfApplication
                 return;
             }
 
-            SentryService.Capture(args.Exception, "Unhandled UI exception");
             WpfMessageBox.Show(Loc.S("errors.unhandled.message", args.Exception.Message), Loc.S("errors.unhandled.title"), MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = true;
         };
@@ -126,17 +125,10 @@ public partial class App : WpfApplication
             try
             {
                 // A terminating block would otherwise close the app with no word at all.
-                if (HandleApplicationControlBlock(ex, "non_ui_unhandled", showNotice: args.IsTerminating))
-                {
-                    return;
-                }
-
-                SentryService.Capture(ex, "Unhandled non-UI exception");
+                HandleApplicationControlBlock(ex, "non_ui_unhandled", showNotice: args.IsTerminating);
             }
             finally
             {
-                // Lines logged after the Error above (the block report, Sentry's own)
-                // must reach the file before the process dies (#985).
                 LoggingService.Flush();
             }
         };
@@ -144,16 +136,7 @@ public partial class App : WpfApplication
         TaskScheduler.UnobservedTaskException += (s, args) =>
         {
             LoggingService.Error("Unobserved task exception", args.Exception);
-
-            // Reported, not shown: this fires from the finalizer at an arbitrary time,
-            // and the process keeps running.
-            if (HandleApplicationControlBlock(args.Exception, "unobserved_task", showNotice: false))
-            {
-                args.SetObserved();
-                return;
-            }
-
-            SentryService.Capture(args.Exception, "Unobserved task exception");
+            HandleApplicationControlBlock(args.Exception, "unobserved_task", showNotice: false);
             args.SetObserved();
         };
 
@@ -163,16 +146,6 @@ public partial class App : WpfApplication
         LoggingService.Info("========== APPLICATION STARTING ==========");
         LoggingService.LogSystemInfo();
         LoggingService.LogHangHypotheses();
-
-        // SENTRY INITIALIZATION
-        // Initialize Sentry for error tracking if user has opted in (default: true).
-        // It runs BEFORE the database: the database_init catch below reports an
-        // Application Control block (#933), and a report made before Initialize()
-        // is dropped. The opt-in lives in settings.json, which SettingsService reads
-        // with no database, so nothing here waits on the migrator's assembly.
-        StartErrorReporting(
-            static () => SettingsService.Instance.EnableErrorLogging,
-            SentryService.Initialize);
 
         // DATABASE INITIALIZATION
         // Initialize database with auto-migration before any services that use it
@@ -270,11 +243,6 @@ public partial class App : WpfApplication
         // Apply the user's preferred theme (or system theme if set to System mode)
         // Must be done after SettingsService is accessible but before UI is shown
         ThemeService.Instance.Initialize();
-
-        // AUTO-UPDATE INITIALIZATION
-        // Initialize NetSparkle update service after settings are loaded
-        // Will only start background checking if user has enabled it
-        UpdateService.Initialize();
 
         // AUTO-DELETE INITIALIZATION
         // Initialize auto-delete cleanup service after database is ready
@@ -413,23 +381,6 @@ public partial class App : WpfApplication
         }
     }
 
-    /// <summary>
-    /// Starts Sentry when, and only when, the user has opted into error reporting.
-    /// Returns whether <paramref name="initialize"/> was called.
-    /// </summary>
-    internal static bool StartErrorReporting(Func<bool> isOptedIn, Action initialize)
-    {
-        if (!isOptedIn())
-        {
-            LoggingService.Info("Sentry error logging disabled by user preference");
-            return false;
-        }
-
-        initialize();
-        LoggingService.Info("Sentry error logging enabled");
-        return true;
-    }
-
     private static int _applicationControlNoticeShown;
 
     /// <summary>
@@ -562,9 +513,6 @@ public partial class App : WpfApplication
         // Clean up theme service event subscriptions
         ThemeService.Instance.Shutdown();
 
-        // Clean up update service
-        UpdateService.Shutdown();
-
         // Clean up auto-delete service
         AutoDeleteService.Instance.Shutdown();
 
@@ -572,21 +520,10 @@ public partial class App : WpfApplication
         SoundEffectsService.Shutdown();
 
         // Mark any in-flight local-LLM GPU load as cleanly exited so a normal quit
-        // mid-load is not misread as a native CUDA crash (which would needlessly
-        // pin that model to CPU and emit a misattributing Sentry event) on the next
-        // launch. Only a hard process death leaves the in-flight flag set.
+        // mid-load is not misread as a native CUDA crash on the next launch.
         LocalLlmService.ClearInFlightGpuLoads();
 
-        // base.OnExit raises the Exit event — the update path's exit-time
-        // installer launch (UpdateService.StartInstallerProcess) runs there, so
-        // it MUST precede the Sentry flush or anything that launch captures
-        // (UAC decline, ShellExecute failure) is dropped. The flush (~2s) racing
-        // the installer's multi-second Inno extraction is an accepted small
-        // window, and only exists on the update path.
         base.OnExit(e);
-
-        // Flush and shutdown Sentry to ensure all pending events are sent
-        SentryService.Shutdown();
 
         LoggingService.Info("========== APPLICATION EXITING ==========");
 

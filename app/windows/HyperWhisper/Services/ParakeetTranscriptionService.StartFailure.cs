@@ -1,5 +1,7 @@
 // PARAKEET TRANSCRIPTION SERVICE — START FAILURE
-// How a daemon that failed to start is classified (#1598) and reported (#854).
+// How a daemon that failed to start is classified (#1598) and logged (#854).
+
+using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Services;
 
@@ -123,7 +125,7 @@ public partial class ParakeetTranscriptionService
     /// an identifier that no longer matches. <c>(none)</c> when stderr was empty.
     /// </summary>
     /// <param name="redact">
-    /// <see cref="SentryService.RedactUserIdentifiers(string?)"/> in the app (the
+    /// <see cref="UserPathRedactor.RedactUserIdentifiers(string?)"/> in the app (the
     /// profile directory becomes <c>%USERPROFILE%</c>, local-app-data
     /// <c>%LOCALAPPDATA%</c>, the account name <c>%USER%</c>); the smoke tests pass
     /// its seam overload with fixed identifiers.
@@ -197,9 +199,7 @@ public partial class ParakeetTranscriptionService
         IReadOnlyList<KeyValuePair<string, object>> fields,
         Exception? exception = null)
     {
-        // The daemon's own error text can sit in the message (daemon_error), so it is
-        // redacted like the tail before it reaches the log.
-        logMessage = SentryService.RedactUserIdentifiers(logMessage);
+        logMessage = UserPathRedactor.RedactUserIdentifiers(logMessage);
         try
         {
             var line = $"{logMessage} ({FormatStartFailureFields(fields)})";
@@ -209,33 +209,6 @@ public partial class ParakeetTranscriptionService
         catch (Exception)
         {
             LoggingService.Error(logMessage);
-        }
-
-        try
-        {
-            if (!SettingsService.Instance.EnableErrorLogging) return;
-
-            var extras = new Dictionary<string, object>(StringComparer.Ordinal);
-            foreach (var (key, value) in fields) extras[key] = value;
-            var failure = Convert.ToString(extras["parakeet_failure"], System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
-
-            SentryService.CaptureDiagnosticEvent(
-                message: "Parakeet daemon start failed",
-                extras: extras,
-                tags: new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["component"] = "parakeet",
-                    ["diagnostic_name"] = "parakeet_daemon_start_failed",
-                    ["parakeet_failure"] = failure,
-                },
-                fingerprint: new[] { "parakeet-daemon-start-failed", failure },
-                // One report per cause per session: a recording retries a failed load,
-                // and the same dead model must not send an event every time.
-                dedupeKey: $"parakeet-daemon-start-failed:{failure}:{extras["parakeet_model_id"]}:{extras["parakeet_exit_code"]}");
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Debug($"ParakeetTranscriptionService: Start-failure report failed: {ex.GetType().Name}");
         }
     }
 }

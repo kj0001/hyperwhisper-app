@@ -1,6 +1,5 @@
 // GENERAL SETTINGS PAGE
-// Handles general application settings including startup behavior, window behavior,
-// error logging (Sentry), and auto-update (NetSparkle).
+// Handles general application settings including startup and window behavior.
 
 using System;
 using System.Diagnostics;
@@ -76,13 +75,6 @@ public partial class GeneralSettingsPage : Page
         SendAppContextCheckbox.Checked += SendAppContextCheckbox_Checked;
         SendAppContextCheckbox.Unchecked += SendAppContextCheckbox_Unchecked;
 
-        // Load error logging state from settings
-        ErrorLoggingCheckbox.Checked -= ErrorLoggingCheckbox_Checked;
-        ErrorLoggingCheckbox.Unchecked -= ErrorLoggingCheckbox_Unchecked;
-        ErrorLoggingCheckbox.IsChecked = SettingsService.Instance.EnableErrorLogging;
-        ErrorLoggingCheckbox.Checked += ErrorLoggingCheckbox_Checked;
-        ErrorLoggingCheckbox.Unchecked += ErrorLoggingCheckbox_Unchecked;
-
         // Load anonymous speed data state from settings
         ShareSpeedDataCheckbox.Checked -= ShareSpeedDataCheckbox_Checked;
         ShareSpeedDataCheckbox.Unchecked -= ShareSpeedDataCheckbox_Unchecked;
@@ -90,19 +82,12 @@ public partial class GeneralSettingsPage : Page
         ShareSpeedDataCheckbox.Checked += ShareSpeedDataCheckbox_Checked;
         ShareSpeedDataCheckbox.Unchecked += ShareSpeedDataCheckbox_Unchecked;
 
-        // Load auto-update state from settings
-        AutoUpdateCheckbox.Checked -= AutoUpdateCheckbox_Checked;
-        AutoUpdateCheckbox.Unchecked -= AutoUpdateCheckbox_Unchecked;
-        AutoUpdateCheckbox.IsChecked = SettingsService.Instance.CheckForUpdatesAutomatically;
-        AutoUpdateCheckbox.Checked += AutoUpdateCheckbox_Checked;
-        AutoUpdateCheckbox.Unchecked += AutoUpdateCheckbox_Unchecked;
-
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         var shortVersion = version?.ToString(3) ?? "Unknown";
         var buildVersion = version?.Revision.ToString() ?? "0";
         VersionText.Text = Loc.S("settings.version.detail", shortVersion, buildVersion);
 
-        LoggingService.Debug($"GeneralSettingsPage: Initialized (startup={startupEnabled}, startupAvailable={startupAvailable}, launchMinimized={SettingsService.Instance.LaunchMinimized}, minimizeToTray={SettingsService.Instance.MinimizeToTray}, showRecordingWindow={SettingsService.Instance.ShowRecordingWindow}, errorLogging={SettingsService.Instance.EnableErrorLogging}, shareSpeedData={SettingsService.Instance.ShareAnonymousSpeedData}, autoUpdate={SettingsService.Instance.CheckForUpdatesAutomatically})");
+        LoggingService.Debug($"GeneralSettingsPage: Initialized (startup={startupEnabled}, startupAvailable={startupAvailable}, launchMinimized={SettingsService.Instance.LaunchMinimized}, minimizeToTray={SettingsService.Instance.MinimizeToTray}, showRecordingWindow={SettingsService.Instance.ShowRecordingWindow}, shareSpeedData={SettingsService.Instance.ShareAnonymousSpeedData})");
     }
 
     // =========================================================================
@@ -222,24 +207,6 @@ public partial class GeneralSettingsPage : Page
     }
 
     // =========================================================================
-    // ERROR LOGGING (SENTRY)
-    // =========================================================================
-
-    private void ErrorLoggingCheckbox_Checked(object sender, RoutedEventArgs e)
-    {
-        SettingsService.Instance.EnableErrorLogging = true;
-        SentryService.Initialize();
-        LoggingService.Info("GeneralSettingsPage: Enabled error logging (Sentry)");
-    }
-
-    private void ErrorLoggingCheckbox_Unchecked(object sender, RoutedEventArgs e)
-    {
-        SettingsService.Instance.EnableErrorLogging = false;
-        SentryService.Shutdown();
-        LoggingService.Info("GeneralSettingsPage: Disabled error logging (Sentry)");
-    }
-
-    // =========================================================================
     // ANONYMOUS SPEED DATA
     // =========================================================================
     //
@@ -257,24 +224,6 @@ public partial class GeneralSettingsPage : Page
     {
         SettingsService.Instance.ShareAnonymousSpeedData = false;
         LoggingService.Info("GeneralSettingsPage: Disabled anonymous speed data sharing");
-    }
-
-    // =========================================================================
-    // AUTO-UPDATE
-    // =========================================================================
-
-    private void AutoUpdateCheckbox_Checked(object sender, RoutedEventArgs e)
-    {
-        SettingsService.Instance.CheckForUpdatesAutomatically = true;
-        UpdateService.StartBackgroundCheck();
-        LoggingService.Info("GeneralSettingsPage: Enabled automatic update checks");
-    }
-
-    private void AutoUpdateCheckbox_Unchecked(object sender, RoutedEventArgs e)
-    {
-        SettingsService.Instance.CheckForUpdatesAutomatically = false;
-        UpdateService.StopBackgroundCheck();
-        LoggingService.Info("GeneralSettingsPage: Disabled automatic update checks");
     }
 
     private void Hyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e)

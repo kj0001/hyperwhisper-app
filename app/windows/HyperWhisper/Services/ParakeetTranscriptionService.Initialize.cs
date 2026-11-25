@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using HyperWhisper.Models;
+using HyperWhisper.Utilities;
 
 namespace HyperWhisper.Services;
 
@@ -214,7 +215,7 @@ public partial class ParakeetTranscriptionService
                 elapsedMilliseconds,
                 lineCount,
                 tail,
-                SentryService.RedactUserIdentifiers);
+                UserPathRedactor.RedactUserIdentifiers);
         }
 
         // WaitAsync, not only the read's token: a read on the daemon's pipe is not

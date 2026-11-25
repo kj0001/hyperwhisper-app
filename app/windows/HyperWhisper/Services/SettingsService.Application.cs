@@ -37,23 +37,15 @@ public partial class SettingsService
     // =========================================================================
 
     /// <summary>
-    /// Whether to send error reports to Sentry for crash tracking.
-    /// When enabled, unhandled exceptions and errors are automatically
-    /// reported to help improve the application.
-    ///
-    /// PRIVACY:
-    /// - Transcription text is NEVER sent
-    /// - Breadcrumbs are stripped before sending
-    /// - Only crash data, stack traces, and system info are reported
-    ///
-    /// Default: true (opt-out model)
+    /// Legacy error logging flag retained only for settings/backup schema compatibility.
+    /// Sentry crash reporting is removed from this build; defaults to false.
     /// </summary>
     public bool EnableErrorLogging
     {
-        get => _settings.EnableErrorLogging ?? true;
+        get => _settings.EnableErrorLogging ?? false;
         set
         {
-            if ((_settings.EnableErrorLogging ?? true) != value)
+            if ((_settings.EnableErrorLogging ?? false) != value)
             {
                 _settings.EnableErrorLogging = value;
                 Save();
@@ -95,19 +87,15 @@ public partial class SettingsService
     }
 
     /// <summary>
-    /// Whether to automatically check for updates on app startup.
-    /// When enabled, the app silently checks the appcast URL and shows
-    /// a dialog if a new version is available.
-    ///
-    /// Uses NetSparkle framework with Ed25519 signature verification.
-    /// Default: true (opt-out model, matching other settings)
+    /// Legacy auto-update flag retained only for settings/backup schema compatibility.
+    /// Auto-updating is removed from this build; defaults to false.
     /// </summary>
     public bool CheckForUpdatesAutomatically
     {
-        get => _settings.CheckForUpdatesAutomatically ?? true;
+        get => _settings.CheckForUpdatesAutomatically ?? false;
         set
         {
-            if ((_settings.CheckForUpdatesAutomatically ?? true) != value)
+            if ((_settings.CheckForUpdatesAutomatically ?? false) != value)
             {
                 _settings.CheckForUpdatesAutomatically = value;
                 Save();

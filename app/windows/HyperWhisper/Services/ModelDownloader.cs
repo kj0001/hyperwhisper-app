@@ -19,7 +19,7 @@ internal static class ModelDownloader
     {
         if (!Directory.Exists(directory))
         {
-            LoggingService.Info($"{ownerName}: Creating models directory: {SentryService.RedactUserIdentifiers(directory)}");
+            LoggingService.Info($"{ownerName}: Creating models directory: {UserPathRedactor.RedactUserIdentifiers(directory)}");
             Directory.CreateDirectory(directory);
         }
     }

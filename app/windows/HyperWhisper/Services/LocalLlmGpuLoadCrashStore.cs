@@ -429,23 +429,7 @@ internal sealed class LocalLlmGpuLoadCrashStore
         var gpu = GpuInfoService.GetBestGpu();
         var from = LocalLlmGpuHelper.BackendId(crashedBackend) ?? "gpu";
         var to = LocalLlmGpuHelper.BackendId(fallbackBackend) ?? "cpu";
-        SentryService.CaptureDiagnosticEvent(
-            "LocalLlmService: Recovered from native GPU load crash, downgraded backend",
-            extras: new Dictionary<string, object>
-            {
-                ["model_file"] = Path.GetFileName(modelPath),
-                ["gpu_name"] = gpu?.Name ?? "unknown",
-                ["gpu_vram"] = gpu?.VramDisplay ?? "unknown",
-                ["crashed_backend"] = from,
-                ["fallback_backend"] = to
-            },
-            tags: new Dictionary<string, string>
-            {
-                ["component"] = "local_llm",
-                ["backend"] = from,
-                ["recovery"] = $"{from}_to_{to}"
-            },
-            fingerprint: new[] { "local-llm-gpu-load-crash" },
-            dedupeKey: $"local-llm-gpu-load-crash:{Path.GetFileName(modelPath)}:{from}_to_{to}");
+        LoggingService.Warn(
+            $"LocalLlmService: Recovered from native GPU load crash, downgraded backend {from} -> {to} for '{Path.GetFileName(modelPath)}' on '{gpu?.Name ?? "unknown"}'");
     }
 }

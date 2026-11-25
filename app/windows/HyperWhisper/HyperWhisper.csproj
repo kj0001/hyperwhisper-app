@@ -35,31 +35,6 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);obj-*\**;obj-*/**</DefaultItemExcludes>
   </PropertyGroup>
 
-  <!-- Sentry Debug Symbol Upload Configuration -->
-  <!-- Release builds default to no symbol upload so raw dotnet publish works locally.
-       CI/release environments enable upload automatically when Sentry credentials exist. -->
-  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <SentryUploadSymbols Condition="'$(SentryUploadSymbols)' == ''">false</SentryUploadSymbols>
-    <SentryUploadSources Condition="'$(SentryUploadSources)' == ''">false</SentryUploadSources>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)' == 'Release' And '$(SENTRY_AUTH_TOKEN)' != '' And '$(SENTRY_ORG)' != '' And '$(SENTRY_PROJECT)' != ''">
-    <SentryUploadSymbols>true</SentryUploadSymbols>
-    <SentryUploadSources>true</SentryUploadSources>
-    <SentryOrg>$(SENTRY_ORG)</SentryOrg>
-    <SentryProject>$(SENTRY_PROJECT)</SentryProject>
-  </PropertyGroup>
-
-  <!-- Sentry DSN baked into the assembly at build time so it ships in releases
-       without living in source. Supplied via the SENTRY_DSN env var (CI); when
-       unset, no attribute is emitted and SentryService no-ops on the blank DSN,
-       so open-source builds run with crash reporting simply disabled. -->
-  <ItemGroup Condition="'$(SENTRY_DSN)' != ''">
-    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
-      <_Parameter1>SentryDsn</_Parameter1>
-      <_Parameter2>$(SENTRY_DSN)</_Parameter2>
-    </AssemblyAttribute>
-  </ItemGroup>
-
   <!-- Existing dependencies -->
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
@@ -129,20 +104,6 @@
        net10.0-windows). -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-  </ItemGroup>
-
-  <!-- Error tracking and monitoring -->
-  <!-- Sentry CLI is bundled in this package and will auto-upload PDB symbols on Release builds -->
-  <!-- when SentryUploadSymbols is true and SENTRY_AUTH_TOKEN env var is set -->
-  <ItemGroup>
-    <PackageReference Include="Sentry" Version="4.12.1" />
-  </ItemGroup>
-
-  <!-- Auto-update framework -->
-  <!-- NetSparkle checks appcast-windows.xml for new versions and shows update dialog -->
-  <!-- Uses Ed25519 signature verification for security -->
-  <ItemGroup>
-    <PackageReference Include="NetSparkleUpdater.SparkleUpdater" Version="3.0.4" />
   </ItemGroup>
 
   <!-- Copy app icon to output directory -->
