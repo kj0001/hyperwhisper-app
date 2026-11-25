@@ -3595,8 +3595,16 @@ internal static class Program
                     var entryId = row.GetProperty("catalogEntryId").GetString()!;
                     var identifier = row.GetProperty("providerIdentifier").GetString()!;
                     var want = row.GetProperty("defaultModelId").GetString()!;
+                    var isByok = row.GetProperty("byokRequestBuilder").GetBoolean();
 
                     var provider = CloudTranscriptionProviderExtensions.FromIdentifier(identifier);
+                    if (!isByok)
+                    {
+                        Assert(provider == CloudTranscriptionProvider.None,
+                            $"{identifier}: non-BYOK HyperWhisper Cloud provider must not resolve");
+                        continue;
+                    }
+
                     Assert(provider != CloudTranscriptionProvider.None,
                         $"{identifier}: Windows does not map this provider identifier");
                     Assert(CloudTranscriptionModels.GetDefault(provider)?.Id == want,
@@ -11842,7 +11850,7 @@ internal static class Program
                 Assert(handler.LastAuthorizationScheme is null, "Gemini sent an authorization header");
             });
 
-            const CloudTranscriptionProvider healthProvider = CloudTranscriptionProvider.None;
+            const CloudTranscriptionProvider healthProvider = CloudTranscriptionProvider.ElevenLabs;
 
             static TranscriptionException ProviderDown() => new(
                 TranscriptionErrorCode.ProviderUnavailable, "Google Chirp 3 unavailable", "Google Chirp 3", 503);
@@ -12548,7 +12556,7 @@ internal static class Program
                     healthProvider, health.CaptureTranscriptionCredentialGeneration(healthProvider), ProviderDown());
                 Assert(health.GetHealthStatus(healthProvider) == ProviderHealth.Unreachable, "precondition");
 
-                // CloudTranscriptionProvider.None is keyless, so RefreshAsync short-circuits to Unknown
+                // ElevenLabs has no stored key in the smoke profile, so RefreshAsync short-circuits to Unknown
                 // without any network I/O. The value that matters is that it is the
                 // probe's own verdict and NOT the override's Unreachable.
                 var refreshed = health.RefreshAsync(healthProvider, force: true).GetAwaiter().GetResult();
@@ -12573,7 +12581,7 @@ internal static class Program
                     "/health must apply the failure override");
 
                 now = now.AddSeconds(2);
-                // The t=0 raw probe is expired. CloudTranscriptionProvider.None has no BYOK key, so
+                // The t=0 raw probe is expired. ElevenLabs has no BYOK key in the smoke profile, so
                 // reaching the normal refresh path returns its raw Unknown. If
                 // the failure had re-stamped the cache at t=59, this call would
                 // return cached Unreachable and suppress the refresh instead.
