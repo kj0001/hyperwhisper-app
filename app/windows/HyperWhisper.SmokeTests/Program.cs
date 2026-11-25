@@ -27290,14 +27290,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// The tag-free text of a run sequence — what the old assertions got by
-    /// calling <c>InlineHtml.PlainText</c> on a block's inner HTML, now that the
-    /// blocks arrive already parsed (#284).
-    /// </summary>
-    private static string RunText(IReadOnlyList<HtmlRun> runs)
-        => string.Concat(runs.Select(run => run.Text));
-
-    /// <summary>
     /// Compares one field of a backup-vectors.json expectation against the value the
     /// native mapper produced. JSON <c>null</c> means the field must come out null —
     /// the absent-stays-absent rule the vectors exist to pin.
