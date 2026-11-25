@@ -168,6 +168,10 @@ public partial class SettingsService
         // Getting Started checklist
         public string? GettingStartedCompletedSteps { get; set; }
 
+        // Jargon guide (Windows-local; not promoted to universal backup snapshot)
+        public bool? UseJargonFile { get; set; }
+        public bool? JargonFileSeeded { get; set; }
+
         // First-run onboarding. NULLABLE IS LOAD-BEARING: null means "this install
         // never wrote it", which ApplyDefaults turns into true only when there was
         // no settings.json at all. Every pre-existing install defaults to false.
@@ -841,6 +845,36 @@ public partial class SettingsService
         return string.Equals(value, AudioEnvironmentService.MuffleAudioMode, StringComparison.OrdinalIgnoreCase)
             ? AudioEnvironmentService.MuffleAudioMode
             : "off";
+    }
+
+    public bool UseJargonFile
+    {
+        get => _settings.UseJargonFile ?? true;
+        set
+        {
+            if ((_settings.UseJargonFile ?? true) != value)
+            {
+                _settings.UseJargonFile = value;
+                Save();
+                LoggingService.Debug($"SettingsService: UseJargonFile set to: {value}");
+                NotifySettingsChanged();
+            }
+        }
+    }
+
+    public bool JargonFileSeeded
+    {
+        get => _settings.JargonFileSeeded ?? false;
+        set
+        {
+            if ((_settings.JargonFileSeeded ?? false) != value)
+            {
+                _settings.JargonFileSeeded = value;
+                Save();
+                LoggingService.Debug($"SettingsService: JargonFileSeeded set to: {value}");
+                NotifySettingsChanged();
+            }
+        }
     }
 
 }

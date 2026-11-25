@@ -2744,8 +2744,8 @@ internal static class Program
                     "a mode without screen OCR kept the previous mode's OCR text");
                 Assert(OcrAfterSwitchTo(new Mode { EnableScreenOCR = true, PostProcessingMode = 0 }) == null,
                     "a mode with no post-processing kept the previous mode's OCR text");
-                Assert(OcrAfterSwitchTo(new Mode { EnableScreenOCR = true, PostProcessingMode = 1 }) == "secret on screen",
-                    "a mode that uses screen OCR lost the text captured at the hotkey");
+                Assert(OcrAfterSwitchTo(new Mode { EnableScreenOCR = true, PostProcessingMode = 1 }) == null,
+                    "Screen OCR is permanently disabled and must always drop residual OCR text (#1)");
             });
 
             // #1809. A Whisper load for mode A that ends after a switch to mode B
@@ -27750,6 +27750,98 @@ internal static class Program
                     "local mode must never prewarm HyperWhisper Cloud");
                 Assert(!TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(null, hasStoredLicenseKey: true),
                     "null mode must never prewarm HyperWhisper Cloud");
+            });
+
+            Run("Screen OCR kill-switch and JargonService / PromptBuilder wiring (#1)", () =>
+            {
+                // 1. Screen OCR service always returns null and PromptBuilder never emits <SCREEN_CONTEXT>
+                var ocr = ScreenOCRCaptureService.Instance.CaptureAndOcrAsync().GetAwaiter().GetResult();
+                Assert(ocr == null, $"ScreenOCRCaptureService must return null when disabled, got '{ocr}'");
+
+                var ctxWithOcr = new Services.ApplicationContext { ScreenOCRText = "secret on screen" };
+                var info = PromptBuilder.SystemInfo(new Mode { Preset = "hyper" }, applicationContext: ctxWithOcr);
+                Assert(!info.Contains("<SCREEN_CONTEXT>", StringComparison.Ordinal)
+                       && !info.Contains("secret on screen", StringComparison.Ordinal),
+                    "PromptBuilder.SystemInfo must never emit <SCREEN_CONTEXT> when Screen OCR is disabled");
+
+                // 2. Sanitization strips prompt delimiters and angle-bracket tags while capping at MaxCharacters
+                var dirty = "--TRANSCRIPT-- <<CLEANED>> <script>alert(1)</script> --ENDTRANSCRIPT-- <<END>> \"see sharp\" -> C#\n"
+                    + new string('a', JargonService.MaxCharacters + 250);
+                var cleaned = JargonService.Sanitize(dirty);
+                Assert(!cleaned.Contains("--TRANSCRIPT--", StringComparison.OrdinalIgnoreCase)
+                       && !cleaned.Contains("--ENDTRANSCRIPT--", StringComparison.OrdinalIgnoreCase)
+                       && !cleaned.Contains("<<CLEANED>>", StringComparison.OrdinalIgnoreCase)
+                       && !cleaned.Contains("<<END>>", StringComparison.OrdinalIgnoreCase)
+                       && !cleaned.Contains('<', StringComparison.Ordinal)
+                       && !RegexTagCheck(cleaned),
+                    $"JargonService.Sanitize leaked unsafe delimiter/tag: '{cleaned[..Math.Min(120, cleaned.Length)]}'");
+                Assert(cleaned.Contains("-> C#", StringComparison.Ordinal),
+                    "JargonService.Sanitize should preserve arrow mappings like -> C#");
+                Assert(cleaned.Length == JargonService.MaxCharacters,
+                    $"JargonService.Sanitize must cap at {JargonService.MaxCharacters} chars, got {cleaned.Length}");
+
+                static bool RegexTagCheck(string s)
+                {
+                    for (int i = 0; i < s.Length; i++)
+                    {
+                        if (s[i] == '>' && (i == 0 || s[i - 1] != '-'))
+                            return true;
+                    }
+                    return false;
+                }
+
+                // 3. Seeding, mtime/length reload, user deletion preservation, ResetToDefaults, and PromptBuilder wiring
+                var prevUseJargon = SettingsService.Instance.UseJargonFile;
+                var prevSeeded = SettingsService.Instance.JargonFileSeeded;
+                var jargonPath = AppPaths.JargonFilePath;
+                try
+                {
+                    SettingsService.Instance.UseJargonFile = true;
+                    SettingsService.Instance.JargonFileSeeded = false;
+                    if (File.Exists(jargonPath)) File.Delete(jargonPath);
+
+                    var seededText = JargonService.Instance.GetSanitizedContent();
+                    Assert(File.Exists(jargonPath) && SettingsService.Instance.JargonFileSeeded,
+                        "GetSanitizedContent must seed jargon.md once on first run");
+                    Assert(seededText.Contains("HyperWhisper", StringComparison.Ordinal),
+                        "seeded jargon.md must contain starter defaults");
+
+                    var promptWithJargon = PromptBuilder.SystemPrompt(new Mode { Preset = "hyper" });
+                    Assert(promptWithJargon.Contains("<JARGON_GUIDE>", StringComparison.Ordinal)
+                           && promptWithJargon.Contains("HyperWhisper", StringComparison.Ordinal),
+                        "PromptBuilder.SystemPrompt must include <JARGON_GUIDE> when UseJargonFile is true");
+
+                    // Edit file and verify reload without restart
+                    File.WriteAllText(jargonPath, "## Custom\n- acme -> AcmeCorpUniqueToken\n");
+                    var updatedPrompt = PromptBuilder.SystemPrompt(new Mode { Preset = "hyper" });
+                    Assert(updatedPrompt.Contains("AcmeCorpUniqueToken", StringComparison.Ordinal),
+                        "PromptBuilder.SystemPrompt must pick up jargon.md edits on the next call");
+
+                    // Disabled toggle omits <JARGON_GUIDE>
+                    SettingsService.Instance.UseJargonFile = false;
+                    var promptWithoutJargon = PromptBuilder.SystemPrompt(new Mode { Preset = "hyper" });
+                    Assert(!promptWithoutJargon.Contains("<JARGON_GUIDE>", StringComparison.Ordinal)
+                           && !promptWithoutJargon.Contains("AcmeCorpUniqueToken", StringComparison.Ordinal),
+                        "PromptBuilder.SystemPrompt must omit <JARGON_GUIDE> when UseJargonFile is false");
+
+                    // Deleting jargon.md after seeding must NOT auto-recreate it
+                    SettingsService.Instance.UseJargonFile = true;
+                    File.Delete(jargonPath);
+                    var afterDelete = JargonService.Instance.GetSanitizedContent();
+                    Assert(afterDelete == string.Empty && !File.Exists(jargonPath),
+                        "deleted jargon.md must not be auto-recreated once seeded");
+
+                    // ResetToDefaults restores starter defaults
+                    JargonService.Instance.ResetToDefaults();
+                    Assert(File.Exists(jargonPath) && JargonService.Instance.GetSanitizedContent().Contains("HyperWhisper", StringComparison.Ordinal),
+                        "ResetToDefaults must recreate jargon.md with starter defaults");
+                }
+                finally
+                {
+                    if (File.Exists(jargonPath)) File.Delete(jargonPath);
+                    SettingsService.Instance.UseJargonFile = prevUseJargon;
+                    SettingsService.Instance.JargonFileSeeded = prevSeeded;
+                }
             });
 
             Console.WriteLine(_failures == 0

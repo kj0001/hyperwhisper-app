@@ -148,7 +148,7 @@ internal sealed partial class WindowsLocalApiBackend
         var resolvedAccuracyTier = patch.CloudAccuracyTier ?? inferredAccuracyTier;
         if (resolvedAccuracyTier != null) mode.CloudAccuracyTier = resolvedAccuracyTier;
         if (patch.RemoveTrailingPeriod is { } v15) mode.RemoveTrailingPeriod = v15;
-        if (patch.EnableScreenOcr is { } v16) mode.EnableScreenOCR = v16;
+        mode.EnableScreenOCR = false;
         if (patch.GeminiCustomPrompt is { } v17) mode.GeminiCustomPrompt = string.IsNullOrEmpty(v17) ? null : v17;
         if (patch.CloudPostProcessingModel is { } v18) mode.CloudPostProcessingModel = v18;
         // An explicit `localParakeetModel` still wins over `model`: it is applied after.

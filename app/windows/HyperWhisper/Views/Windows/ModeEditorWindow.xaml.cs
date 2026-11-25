@@ -1940,7 +1940,7 @@ public partial class ModeEditorWindow : Window
         _mode.Punctuation = PunctuationCheck.IsChecked == true;
         _mode.Capitalization = CapitalizationCheck.IsChecked == true;
         _mode.ProfanityFilter = ProfanityFilterCheck.IsChecked == true;
-        _mode.EnableScreenOCR = ScreenOCRCheck.IsChecked == true;
+        _mode.EnableScreenOCR = false;
         _mode.RemoveTrailingPeriod = RemoveTrailingPeriodCheck.IsChecked == true;
 
         // Save English spelling

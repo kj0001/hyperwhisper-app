@@ -58,7 +58,20 @@ public static class PromptBuilder
         ApplicationContext? applicationContext = null)
     {
         var ctx = MakeContext(mode, applicationContext, vocabulary: null);
-        return HyperwhisperCoreMethods.BuildSystemPrompt(ctx);
+        var basePrompt = HyperwhisperCoreMethods.BuildSystemPrompt(ctx);
+        var useJargon = SettingsService.Instance.UseJargonFile;
+        var jargon = useJargon ? JargonService.Instance.GetSanitizedContent() : null;
+        return AppendJargonGuide(basePrompt, useJargon, jargon);
+    }
+
+    internal static string AppendJargonGuide(string basePrompt, bool useJargonFile, string? sanitizedJargon)
+    {
+        if (!useJargonFile || string.IsNullOrWhiteSpace(sanitizedJargon))
+        {
+            return basePrompt;
+        }
+
+        return $"{basePrompt}\n\n<JARGON_GUIDE>\nUse the following user-maintained jargon, spelling, and formatting reference when cleaning up the transcript. Prefer these exact spellings and mappings when they match what was spoken:\n{sanitizedJargon}\n</JARGON_GUIDE>";
     }
 
     /// <summary>
@@ -161,7 +174,7 @@ public static class PromptBuilder
             @browserTabTitle: appContext?.BrowserTabTitle ?? "",
             @focusedElement: focusedElement,
             @focusedContent: focusedContent,
-            @screenOcrText: appContext?.ScreenOCRText ?? "",
+            @screenOcrText: "",
             @appTypeConfidence: appContext?.AppTypeConfidence ?? "unknown",
             @appTypeSource: appContext?.AppTypeSource ?? "default",
             @hasApplicationContext: !string.IsNullOrEmpty(appName),
