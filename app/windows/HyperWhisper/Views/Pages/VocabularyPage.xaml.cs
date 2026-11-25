@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -25,6 +26,7 @@ public partial class VocabularyPage : Page
     private string? _editingSource;
     private bool _showingReplacementField;
     private readonly bool _compactSettingsLayout;
+    private bool _isLoadingJargonUi;
 
     public VocabularyPage()
         : this(compactSettingsLayout: false)
@@ -45,6 +47,7 @@ public partial class VocabularyPage : Page
         RootStack.MaxWidth = _compactSettingsLayout ? 560 : 900;
         _vocabularyService.VocabularyChanged -= OnVocabularyChanged;
         _vocabularyService.VocabularyChanged += OnVocabularyChanged;
+        RefreshJargonCard();
         RefreshList();
         UpdateActionChipsEnabled();
         WordBox.Focus();
@@ -316,6 +319,73 @@ public partial class VocabularyPage : Page
         _vocabularyService.Delete(id);
         ClearError();
         RefreshList();
+    }
+
+    private void RefreshJargonCard()
+    {
+        _isLoadingJargonUi = true;
+        try
+        {
+            UseJargonFileCheck.IsChecked = SettingsService.Instance.UseJargonFile;
+            JargonPathText.Text = AppPaths.JargonFilePath;
+            var count = JargonService.Instance.GetCurrentCharacterCount();
+            JargonCharCountText.Text = $"{count:N0} / {JargonService.MaxCharacters:N0} chars";
+        }
+        finally
+        {
+            _isLoadingJargonUi = false;
+        }
+    }
+
+    private void UseJargonFileCheck_CheckedChanged(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingJargonUi) return;
+        SettingsService.Instance.UseJargonFile = UseJargonFileCheck.IsChecked == true;
+        RefreshJargonCard();
+    }
+
+    private void EditJargonButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            JargonService.Instance.EnsureFileExistsForEdit();
+            Process.Start(new ProcessStartInfo(AppPaths.JargonFilePath) { UseShellExecute = true });
+            RefreshJargonCard();
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn($"VocabularyPage: Failed to open jargon.md: {ex.Message}");
+            System.Windows.MessageBox.Show(
+                "Could not open jargon.md in your default editor.",
+                "Jargon Guide",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    private void ResetJargonButton_Click(object sender, RoutedEventArgs e)
+    {
+        var confirm = System.Windows.MessageBox.Show(
+            "Reset jargon.md back to the default starter terms? Any custom edits in jargon.md will be overwritten.",
+            "Reset Jargon Guide",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        try
+        {
+            JargonService.Instance.ResetToDefaults();
+            RefreshJargonCard();
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Warn($"VocabularyPage: Failed to reset jargon.md: {ex.Message}");
+            System.Windows.MessageBox.Show(
+                "Could not reset jargon.md.",
+                "Jargon Guide",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     private sealed class VocabularyItemRow

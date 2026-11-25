@@ -122,7 +122,7 @@ internal sealed partial class WindowsLocalApiBackend
             // API/MCP-created modes don't silently use the retired default.
             CloudAccuracyTier = normalized.AccuracyTier ?? dto.CloudAccuracyTier ?? "elevenLabsScribeV2",
             RemoveTrailingPeriod = dto.RemoveTrailingPeriod ?? false,
-            EnableScreenOCR = dto.EnableScreenOcr ?? false,
+            EnableScreenOCR = false,
             GeminiCustomPrompt = dto.GeminiCustomPrompt,
             // Fallback post-processing model mirrors the GUI/default-mode
             // recommendation (ModeDefaults.cs: Anthropic Claude Haiku 5.5).

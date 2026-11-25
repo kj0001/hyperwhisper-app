@@ -91,6 +91,71 @@
                 </StackPanel>
             </Border>
 
+            <!-- Jargon Guide (jargon.md) -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource CardCornerRadius}"
+                    Padding="16"
+                    Margin="0,0,0,16">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Jargon Guide (jargon.md)"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Editable spelling and terminology guide injected into Stage 2 LLM post-processing (max 4,000 chars). Changes apply on your next dictation."
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <CheckBox x:Name="UseJargonFileCheck"
+                                  Grid.Column="1"
+                                  Content="Include in post-processing"
+                                  VerticalAlignment="Center"
+                                  Margin="12,0,0,0"
+                                  Checked="UseJargonFileCheck_CheckedChanged"
+                                  Unchecked="UseJargonFileCheck_CheckedChanged"/>
+                    </Grid>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="JargonPathText"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="JargonCharCountText"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                            <Button x:Name="EditJargonButton"
+                                    Content="Edit jargon.md"
+                                    Padding="12,6"
+                                    Cursor="Hand"
+                                    Click="EditJargonButton_Click"/>
+                            <Button x:Name="ResetJargonButton"
+                                    Content="Reset Defaults"
+                                    Padding="12,6"
+                                    Margin="8,0,0,0"
+                                    Cursor="Hand"
+                                    Click="ResetJargonButton_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- Input Form -->
             <StackPanel x:Name="InputSection" Margin="0,0,0,16">
 

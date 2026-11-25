@@ -520,10 +520,11 @@
                         <CheckBox x:Name="ProfanityFilterCheck" Content="{loc:Loc mode.editor.postProcessing.profanityFilter}"
                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8"/>
 
-                        <!-- Screen Text OCR -->
+                        <!-- Screen Text OCR (disabled in this build — #1) -->
                         <CheckBox x:Name="ScreenOCRCheck" Content="{loc:Loc mode.editor.postProcessing.screenText}"
+                                  IsChecked="False" IsEnabled="False"
                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,2"/>
-                        <TextBlock Text="{loc:Loc mode.editor.postProcessing.screenText.hint}"
+                        <TextBlock Text="Screen OCR is disabled in this build. Use Vocabulary → Jargon Guide (jargon.md) for custom technical terms and spellings."
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    TextWrapping="Wrap" FontSize="11" Margin="20,0,0,16"/>
 

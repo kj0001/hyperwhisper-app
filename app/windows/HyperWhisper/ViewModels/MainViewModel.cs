@@ -2403,7 +2403,8 @@ public partial class MainViewModel : ViewModelBase
         // last recording's application into this one's post-processing prompt.
         _capturedApplicationContext = null;
 
-        var wantsScreenOcr = recordingMode.EnableScreenOCR && recordingMode.PostProcessingMode != 0;
+        // Screen OCR is permanently disabled (#1).
+        const bool wantsScreenOcr = false;
         var stage = wantsScreenOcr ? "start_recording_with_screen_ocr" : "start_recording";
 
         return OptionalAssemblyGuard.TryRunAsync(
@@ -2442,36 +2443,20 @@ public partial class MainViewModel : ViewModelBase
     /// <see cref="CaptureApplicationContext"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private async Task CaptureApplicationContextAsync(Mode recordingMode)
+    private Task CaptureApplicationContextAsync(Mode recordingMode)
     {
         CaptureApplicationContext();
-
-        // Capture screen OCR text if enabled on this mode.
-        if (recordingMode.EnableScreenOCR && recordingMode.PostProcessingMode != 0)
-        {
-            // ast-grep-ignore: no-unguarded-optional-assembly-use -- this IS the guarded boundary, reached only through OptionalAssemblyGuard.TryRunAsync.
-            _capturedApplicationContext ??= new HyperWhisper.Services.ApplicationContext();
-            _capturedApplicationContext.ScreenOCRText = await ScreenOCRCaptureService.Instance.CaptureAndOcrAsync();
-            if (_capturedApplicationContext.ScreenOCRText != null)
-            {
-                LoggingService.Info($"Screen OCR captured: {_capturedApplicationContext.ScreenOCRText.Length} characters");
-            }
-        }
+        return Task.CompletedTask;
     }
 
     /// <summary>
-    /// The context was captured for the mode selected at the hotkey, and the
-    /// recording can move to another mode while its model loads (#1609). Screen
-    /// OCR is the one part a mode gates, so a mode that did not ask for it must
-    /// not send it in its prompt. A mode that asks for it and had none gets none:
-    /// a capture now would read the window the user switched mode in.
+    /// Drops any Screen OCR text unconditionally because Screen OCR is disabled (#1).
     /// </summary>
     private void DropScreenOcrTheModeDoesNotWant(Mode recordingMode)
     {
-        if (recordingMode.EnableScreenOCR && recordingMode.PostProcessingMode != 0) return;
         if (_capturedApplicationContext?.ScreenOCRText == null) return;
 
-        LoggingService.Info("StartRecordingAsync: The selected mode does not use screen OCR; dropped the text captured for the previous mode");
+        LoggingService.Info("StartRecordingAsync: Screen OCR is disabled; dropped residual OCR text");
         _capturedApplicationContext.ScreenOCRText = null;
     }
 

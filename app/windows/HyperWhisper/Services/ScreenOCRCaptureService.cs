@@ -81,29 +81,11 @@ public class ScreenOCRCaptureService : HyperWhisper.Platform.Abstractions.IScree
     // =========================================================================
 
     /// <summary>
-    /// Capture the monitor containing the foreground window and extract text via OCR.
-    /// Returns null on failure (graceful degradation).
+    /// Screen OCR is permanently disabled in this build (issue #1).
     /// </summary>
-    /// <param name="maxCharacters">Maximum characters to return (default 2000).</param>
-    public async Task<string?> CaptureAndOcrAsync(int maxCharacters = 2000)
-    {
-        try
-        {
-            // Wrap entire pipeline in 3-second timeout
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            return await Task.Run(() => CaptureAndOcrCore(maxCharacters, cts.Token), cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            LoggingService.Warn("ScreenOCRCaptureService: Timeout (3s)");
-            return null;
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Warn($"ScreenOCRCaptureService: CaptureAndOcrAsync failed: {ex.Message}");
-            return null;
-        }
-    }
+    /// <param name="maxCharacters">Unused character cap kept for signature compatibility.</param>
+    public Task<string?> CaptureAndOcrAsync(int maxCharacters = 2000)
+        => Task.FromResult<string?>(null);
 
     async ValueTask<HyperWhisper.Platform.Abstractions.PlatformResult<string?>>
         HyperWhisper.Platform.Abstractions.IScreenOcrService.CaptureAndRecognizeAsync(

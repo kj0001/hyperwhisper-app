@@ -340,7 +340,8 @@ public partial class ModeEditorWindow
                 SelectEnglishSpelling(mode.EnglishSpelling);
 
                 ProfanityFilterCheck.IsChecked = mode.ProfanityFilter;
-                ScreenOCRCheck.IsChecked = mode.EnableScreenOCR;
+                ScreenOCRCheck.IsChecked = false;
+                ScreenOCRCheck.IsEnabled = false;
 
                 // Load user system prompt
                 var userPrompt = mode.UserSystemPrompt ?? "";
@@ -363,7 +364,8 @@ public partial class ModeEditorWindow
 
                 SelectEnglishSpelling(mode.EnglishSpelling);
                 ProfanityFilterCheck.IsChecked = mode.ProfanityFilter;
-                ScreenOCRCheck.IsChecked = mode.EnableScreenOCR;
+                ScreenOCRCheck.IsChecked = false;
+                ScreenOCRCheck.IsEnabled = false;
                 UserPromptCheck.IsChecked = false;
                 UserPromptPanel.Visibility = Visibility.Collapsed;
                 UserPromptBox.Text = mode.UserSystemPrompt ?? "";

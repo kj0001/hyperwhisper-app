@@ -48,6 +48,14 @@ public static class AppPaths
 
     public static string ProfileTempRecordingsDirectory => Path.Combine(AppDataRoot, "Temp", "HyperWhisper", "recordings");
 
+    public static string JargonFilePath =>
+        IsAppDataRootOverridden
+            ? Path.Combine(AppDataRoot, "jargon.md")
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "HyperWhisper",
+                "jargon.md");
+
     public static string CredentialResource
     {
         get
