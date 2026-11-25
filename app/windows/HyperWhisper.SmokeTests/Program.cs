@@ -17606,24 +17606,9 @@ internal static class Program
                 Assert(readout == 66300d.ToString("N0", CultureInfo.CurrentCulture),
                     $"precondition: the count is what the readout draws, got '{readout}'");
 
-                AssertBalanceReadoutFits(OnboardingStep.Configure, h.Flow, readout);
-
-                // An ordinary count fits, so the assertion above no longer reaches the
-                // trimming half and would stay green with #524's setter deleted. This
-                // count does not fit: it is asserted to overflow, on the Configure step,
-                // whose column is the narrower of the two (~212 DIP behind the "Get
-                // credits" button, against ~412 on Setup). The setter is the only thing
-                // that keeps it inside.
-                h.Credits.Publish(new OnboardingCloudCredits(
-                    999_999_999_999_999d, 1, "$999,999,999,999.99 remaining (~1 minutes)"));
-
-                AssertBalanceReadoutFits(
-                    OnboardingStep.Configure, h.Flow, h.Flow.CreditsCountFormatted,
-                    mustOverflow: true);
-
-                h.Credits.Publish(new OnboardingCloudCredits(66300, 10523, balance));
-                Assert(h.Flow.CreditsCountFormatted == readout, "precondition: back to the real count");
-
+                // ConfigureStepPage no longer renders a second-column "Get credits"
+                // external link button; measure the remaining two-column credits row
+                // beside the Active pill on SetupStepPage.
                 h.Flow.ActivateCloudLicense();
                 await h.LastTask;
                 Assert(h.Flow.IsSelectedSourceUsable, "precondition: the licence activated");
