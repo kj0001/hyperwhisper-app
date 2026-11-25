@@ -1569,7 +1569,6 @@ public partial class ModeEditorWindow : Window
             RemoveTrailingPeriodCheck.Visibility = Visibility.Visible;
             PunctuationCheck.IsChecked = false;
             CapitalizationCheck.IsChecked = false;
-            ScreenOCRCheck.IsChecked = false;
         }
         else
         {

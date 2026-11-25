@@ -282,8 +282,7 @@ internal sealed class LocalApiApplicationContext
             TextFormat = TrimOrDefault(TextFormat, classification.AppType.ToTextFormat()),
             AppType = classification.AppType,
             AppTypeConfidence = TrimOrDefault(AppTypeConfidence, classification.Confidence),
-            AppTypeSource = TrimOrDefault(AppTypeSource, classification.Source),
-            ScreenOCRText = TrimOrNull(ScreenOcrText)
+            AppTypeSource = TrimOrDefault(AppTypeSource, classification.Source)
         };
     }
 
