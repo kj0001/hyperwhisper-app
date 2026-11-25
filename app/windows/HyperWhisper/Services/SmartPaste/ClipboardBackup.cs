@@ -165,6 +165,13 @@ internal sealed class ClipboardBackup : IDisposable
 
             try
             {
+                if (IsClipboardConcealed(Clipboard.ContainsData, Clipboard.GetData))
+                {
+                    LoggingService.Info("SmartPasteService: Skipping clipboard snapshot for concealed/excluded clipboard content");
+                    _isInRecordingSession = true;
+                    return;
+                }
+
                 // Extract data from clipboard for each supported format.
                 // An empty (or fully-unsupported) clipboard simply yields an empty
                 // dataDict and is handled by the Count check below. We intentionally
@@ -610,14 +617,87 @@ internal sealed class ClipboardBackup : IDisposable
     // TRANSCRIPT WRITE
     // =========================================================================
 
+    internal static bool IsClipboardFlagDisabled(object? data)
+    {
+        if (data == null)
+        {
+            return true;
+        }
+
+        if (data is int intVal)
+        {
+            return intVal == 0;
+        }
+
+        if (data is uint uintVal)
+        {
+            return uintVal == 0;
+        }
+
+        if (data is byte[] bytes)
+        {
+            return bytes.Length < 4 || BitConverter.ToInt32(bytes, 0) == 0;
+        }
+
+        if (data is MemoryStream ms)
+        {
+            var arr = ms.ToArray();
+            return arr.Length < 4 || BitConverter.ToInt32(arr, 0) == 0;
+        }
+
+        // Fail closed on any unexpected payload type.
+        return true;
+    }
+
+    internal static bool IsClipboardConcealed(
+        Func<string, bool> containsData,
+        Func<string, object?> getData)
+    {
+        if (containsData(ExcludeFromMonitorFormat))
+        {
+            return true;
+        }
+
+        foreach (var flagFormat in new[] { CanIncludeInHistoryFormat, CanUploadToCloudFormat })
+        {
+            bool present;
+            try
+            {
+                present = containsData(flagFormat);
+            }
+            catch
+            {
+                return true;
+            }
+
+            if (!present)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (IsClipboardFlagDisabled(getData(flagFormat)))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Sets text on the clipboard, optionally excluding it from Windows clipboard
-    /// history (Win+V) and third-party clipboard managers.
+    /// history (Win+V), cloud clipboard sync, and third-party clipboard managers.
     ///
-    /// Uses the "ExcludeClipboardContentFromMonitorProcessing" clipboard format,
-    /// which is the standard Windows mechanism for hiding sensitive clipboard data.
-    /// This is the same approach used by password managers (1Password, KeePass, etc.)
-    /// and is the Windows equivalent of macOS's org.nspasteboard.ConcealedType.
+    /// Uses "ExcludeClipboardContentFromMonitorProcessing",
+    /// "CanIncludeInClipboardHistory" = 0, and "CanUploadClipboardContentToCloud" = 0,
+    /// which are the standard Windows mechanisms for hiding sensitive clipboard data.
     /// </summary>
     internal static void SetClipboardText(string text)
     {
@@ -625,7 +705,9 @@ internal sealed class ClipboardBackup : IDisposable
         {
             var dataObject = new DataObject();
             dataObject.SetData(DataFormats.UnicodeText, text);
-            dataObject.SetData("ExcludeClipboardContentFromMonitorProcessing", "");
+            dataObject.SetData(ExcludeFromMonitorFormat, "");
+            dataObject.SetData(CanIncludeInHistoryFormat, new MemoryStream(BitConverter.GetBytes(0)));
+            dataObject.SetData(CanUploadToCloudFormat, new MemoryStream(BitConverter.GetBytes(0)));
             Clipboard.SetDataObject(dataObject, true);
         }
         else
