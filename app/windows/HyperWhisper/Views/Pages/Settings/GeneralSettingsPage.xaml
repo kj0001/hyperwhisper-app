@@ -107,6 +107,29 @@
                                   Checked="ShowRecordingWindowCheckbox_Checked"
                                   Unchecked="ShowRecordingWindowCheckbox_Unchecked"/>
                     </Grid>
+
+                    <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,10,0,10"/>
+
+                    <!-- Send App Context to Post-Processing (Opt-in) -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
+                            <TextBlock Text="Send active app context to post-processing" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Share active window title, browser host, focused field text, and computer name with your LLM for context-aware formatting. Off by default; password managers are always excluded."
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="0,2,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <CheckBox x:Name="SendAppContextCheckbox" Grid.Column="1"
+                                  VerticalAlignment="Center"
+                                  Checked="SendAppContextCheckbox_Checked"
+                                  Unchecked="SendAppContextCheckbox_Unchecked"/>
+                    </Grid>
                 </StackPanel>
             </Border>
 

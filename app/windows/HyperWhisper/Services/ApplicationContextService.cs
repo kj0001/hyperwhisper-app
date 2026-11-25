@@ -856,17 +856,24 @@ public class ApplicationContextService : IDisposable, PlatformContracts.IApplica
     /// Gets the selected text or value of the focused element.
     /// Returns null for password fields, unsupported elements, or on any error.
     /// </summary>
-    private static string? GetFocusedContent(AutomationElement element)
+    internal static bool IsPasswordFieldOrUnknown(Func<bool> isPasswordGetter)
     {
         try
         {
-            if (element.Current.IsPassword)
-                return null;
+            return isPasswordGetter();
         }
         catch
         {
-            // IsPassword check failed — safe to continue, content capture may still work
+            // Fail closed: if UIA cannot determine whether the focused control is a
+            // password field, refuse to read its text.
+            return true;
         }
+    }
+
+    private static string? GetFocusedContent(AutomationElement element)
+    {
+        if (IsPasswordFieldOrUnknown(() => element.Current.IsPassword))
+            return null;
 
         // Try selected text first (more useful than full value)
         var selected = GetSelectedTextViaTextPattern(element);

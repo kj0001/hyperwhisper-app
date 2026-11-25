@@ -103,24 +103,22 @@ public static class PromptBuilder
     // Mirrors macOS PromptBuilder.makeContext(...).
     // =========================================================================
 
+    internal static bool ShouldEmitAppContext(bool sendAppContextToPostProcessing, HwAppType appType)
+        => sendAppContextToPostProcessing && appType != HwAppType.Sensitive;
+
     // TODO-verify (Windows/CI): Rust shared-core swap.
     private static uniffi.hyperwhisper_core.PromptContext MakeContext(
         Mode mode,
         ApplicationContext? applicationContext,
         List<string>? vocabulary)
     {
+        var sendAppContext = SettingsService.Instance.SendAppContextToPostProcessing;
+
         // Use the passed context if available, otherwise gather a fresh one from
-        // the current foreground window. The recording path forwards the context
-        // it captured at recording start. Some callers pass null (the Local API
-        // endpoints and the transcription retry handler), and for them this
-        // fallback gathers, as it did before #960. The branch unifies Windows with
-        // macOS PromptBuilder.makeContext, which also gathers when nil.
-        // When Application Control blocks HyperWhisper.AppClassification, the
-        // fallback gather is skipped and the context stays null.
-        // Warning: name no AppClassification type in this method (#960). Both reads
-        // below go through OptionalAssemblyGuard, so the recording path still
-        // builds its prompt when that assembly is blocked.
-        var appContext = applicationContext ?? TryGatherContext();
+        // the current foreground window when opt-in context sharing is enabled.
+        var appContext = sendAppContext ? (applicationContext ?? TryGatherContext()) : null;
+        var hwAppType = sendAppContext ? TryReadHwAppType(appContext) : HwAppType.Other;
+        var emitContext = ShouldEmitAppContext(sendAppContext, hwAppType);
 
         var preset = PresetFromNative(PresetTypeExtensions.FromString(mode.Preset));
         var customInstructions = preset == uniffi.hyperwhisper_core.Preset.Custom
@@ -136,13 +134,13 @@ public static class PromptBuilder
 
         // Focused element: Windows captures a single simplified element-type string
         // (no AX role/title split like macOS), so pass it through verbatim.
-        var focusedElement = appContext?.FocusedElementType ?? "";
+        var focusedElement = emitContext ? (appContext?.FocusedElementType ?? "") : "";
 
         // Focused content: pre-truncate to 100 source chars (the core does NOT
         // truncate — keeping this native prevents full field content leaking).
         // Windows already truncates at capture, but re-apply for safety/parity.
         var focusedContent = "";
-        var rawFocused = appContext?.FocusedContent;
+        var rawFocused = emitContext ? appContext?.FocusedContent : null;
         if (!string.IsNullOrEmpty(rawFocused))
         {
             focusedContent = rawFocused.Length > 100
@@ -156,7 +154,7 @@ public static class PromptBuilder
             .Where(w => !string.IsNullOrEmpty(w))
             .ToList();
 
-        var appName = appContext?.ProcessName ?? "";
+        var appName = emitContext ? (appContext?.ProcessName ?? "") : "";
 
         return new uniffi.hyperwhisper_core.PromptContext(
             @preset: preset,
@@ -164,20 +162,20 @@ public static class PromptBuilder
             @englishSpelling: HyperwhisperCoreMethods.EnglishSpellingFromRaw(mode.EnglishSpelling ?? ""),
             @language: resolvedLanguage,
             @userSystemPrompt: mode.UserSystemPrompt ?? "",
-            @appType: TryReadHwAppType(appContext),
+            @appType: emitContext ? hwAppType : HwAppType.Other,
             @appName: appName,
-            @category: appContext?.Category ?? "",
+            @category: emitContext ? (appContext?.Category ?? "") : "",
             // Windows ApplicationContext carries no free-text "description" field.
             @description: "",
-            @textFormat: appContext?.TextFormat ?? "",
-            @browserHost: appContext?.BrowserHost ?? "",
-            @browserTabTitle: appContext?.BrowserTabTitle ?? "",
+            @textFormat: emitContext ? (appContext?.TextFormat ?? "") : "",
+            @browserHost: emitContext ? (appContext?.BrowserHost ?? "") : "",
+            @browserTabTitle: emitContext ? (appContext?.BrowserTabTitle ?? "") : "",
             @focusedElement: focusedElement,
             @focusedContent: focusedContent,
             @screenOcrText: "",
-            @appTypeConfidence: appContext?.AppTypeConfidence ?? "unknown",
-            @appTypeSource: appContext?.AppTypeSource ?? "default",
-            @hasApplicationContext: !string.IsNullOrEmpty(appName),
+            @appTypeConfidence: emitContext ? (appContext?.AppTypeConfidence ?? "unknown") : "unknown",
+            @appTypeSource: emitContext ? (appContext?.AppTypeSource ?? "default") : "default",
+            @hasApplicationContext: emitContext && !string.IsNullOrEmpty(appName),
             @vocabularyWords: vocabularyWords,
             // Host-resolved fields. Preserve the existing Windows on-wire values:
             // short time, TimeZoneInfo.Local.StandardName, CurrentCulture.Name,
@@ -186,7 +184,7 @@ public static class PromptBuilder
             @time: DateTime.Now.ToString("t", CultureInfo.CurrentCulture),
             @timezone: TimeZoneInfo.Local.StandardName,
             @locale: CultureInfo.CurrentCulture.Name,
-            @computerName: Environment.MachineName,
+            @computerName: emitContext ? Environment.MachineName : "",
             @punctuation: mode.Punctuation,
             @capitalization: mode.Capitalization,
             @profanityFilter: mode.ProfanityFilter

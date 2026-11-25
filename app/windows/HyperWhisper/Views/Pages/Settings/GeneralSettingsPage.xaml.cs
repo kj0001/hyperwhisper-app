@@ -69,6 +69,13 @@ public partial class GeneralSettingsPage : Page
         ShowRecordingWindowCheckbox.Checked += ShowRecordingWindowCheckbox_Checked;
         ShowRecordingWindowCheckbox.Unchecked += ShowRecordingWindowCheckbox_Unchecked;
 
+        // Load opt-in app context sharing state from settings
+        SendAppContextCheckbox.Checked -= SendAppContextCheckbox_Checked;
+        SendAppContextCheckbox.Unchecked -= SendAppContextCheckbox_Unchecked;
+        SendAppContextCheckbox.IsChecked = SettingsService.Instance.SendAppContextToPostProcessing;
+        SendAppContextCheckbox.Checked += SendAppContextCheckbox_Checked;
+        SendAppContextCheckbox.Unchecked += SendAppContextCheckbox_Unchecked;
+
         // Load error logging state from settings
         ErrorLoggingCheckbox.Checked -= ErrorLoggingCheckbox_Checked;
         ErrorLoggingCheckbox.Unchecked -= ErrorLoggingCheckbox_Unchecked;
@@ -200,6 +207,18 @@ public partial class GeneralSettingsPage : Page
     {
         SettingsService.Instance.ShowRecordingWindow = false;
         LoggingService.Info("GeneralSettingsPage: Disabled show recording window");
+    }
+
+    private void SendAppContextCheckbox_Checked(object sender, RoutedEventArgs e)
+    {
+        SettingsService.Instance.SendAppContextToPostProcessing = true;
+        LoggingService.Info("GeneralSettingsPage: Enabled sending active app context to post-processing");
+    }
+
+    private void SendAppContextCheckbox_Unchecked(object sender, RoutedEventArgs e)
+    {
+        SettingsService.Instance.SendAppContextToPostProcessing = false;
+        LoggingService.Info("GeneralSettingsPage: Disabled sending active app context to post-processing");
     }
 
     // =========================================================================

@@ -2403,6 +2403,11 @@ public partial class MainViewModel : ViewModelBase
         // last recording's application into this one's post-processing prompt.
         _capturedApplicationContext = null;
 
+        if (!_settingsService.SendAppContextToPostProcessing)
+        {
+            return Task.CompletedTask;
+        }
+
         // Screen OCR is permanently disabled (#1).
         const bool wantsScreenOcr = false;
         var stage = wantsScreenOcr ? "start_recording_with_screen_ocr" : "start_recording";
@@ -2420,6 +2425,11 @@ public partial class MainViewModel : ViewModelBase
     private void TryCaptureApplicationContext(string stage)
     {
         _capturedApplicationContext = null;
+
+        if (!_settingsService.SendAppContextToPostProcessing)
+        {
+            return;
+        }
 
         OptionalAssemblyGuard.TryRun(
             OptionalAssemblyGuard.AppClassificationAssembly,

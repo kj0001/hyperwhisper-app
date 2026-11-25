@@ -538,17 +538,26 @@ internal static class ScriptGuardPorts
                 ("message", Context(AppType.WorkMessaging, "slack", "text"), "<WORK_MESSAGE_CONTEXT_DETECTED>", "work_messaging"),
                 ("message", Context(AppType.PersonalMessaging, "Discord", "text"), "<PERSONAL_MESSAGE_CONTEXT_DETECTED>", "personal_messaging"),
             };
-            foreach (var c in cases)
+            var previousSendContext = SettingsService.Instance.SendAppContextToPostProcessing;
+            SettingsService.Instance.SendAppContextToPostProcessing = true;
+            try
             {
-                var mode = new Mode { Preset = c.Preset };
-                var prompt = PromptBuilder.SystemPrompt(mode, c.Context);
-                var info = PromptBuilder.SystemInfo(mode, applicationContext: c.Context);
-                Assert(prompt.Contains(c.Marker, StringComparison.Ordinal), $"{c.Wire}: the prompt has no {c.Marker}");
-                Assert(info.Contains($"<APP_TYPE>{c.Wire}</APP_TYPE>", StringComparison.Ordinal), $"{c.Wire}: system info has the wrong APP_TYPE");
-                Assert(info.Contains("<APP_TYPE_CONFIDENCE>strong</APP_TYPE_CONFIDENCE>", StringComparison.Ordinal)
-                    && info.Contains("<APP_TYPE_SOURCE>verifier</APP_TYPE_SOURCE>", StringComparison.Ordinal),
-                    $"{c.Wire}: system info lost the confidence or source");
-                Assert(!prompt.Contains("{{", StringComparison.Ordinal), $"{c.Wire}: the prompt kept an unfilled template slot");
+                foreach (var c in cases)
+                {
+                    var mode = new Mode { Preset = c.Preset };
+                    var prompt = PromptBuilder.SystemPrompt(mode, c.Context);
+                    var info = PromptBuilder.SystemInfo(mode, applicationContext: c.Context);
+                    Assert(prompt.Contains(c.Marker, StringComparison.Ordinal), $"{c.Wire}: the prompt has no {c.Marker}");
+                    Assert(info.Contains($"<APP_TYPE>{c.Wire}</APP_TYPE>", StringComparison.Ordinal), $"{c.Wire}: system info has the wrong APP_TYPE");
+                    Assert(info.Contains("<APP_TYPE_CONFIDENCE>strong</APP_TYPE_CONFIDENCE>", StringComparison.Ordinal)
+                        && info.Contains("<APP_TYPE_SOURCE>verifier</APP_TYPE_SOURCE>", StringComparison.Ordinal),
+                        $"{c.Wire}: system info lost the confidence or source");
+                    Assert(!prompt.Contains("{{", StringComparison.Ordinal), $"{c.Wire}: the prompt kept an unfilled template slot");
+                }
+            }
+            finally
+            {
+                SettingsService.Instance.SendAppContextToPostProcessing = previousSendContext;
             }
         });
 
