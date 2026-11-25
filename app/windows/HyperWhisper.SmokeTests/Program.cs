@@ -21881,8 +21881,8 @@ internal static class Program
                         string modelId, double? knownSeconds, Func<string, int, (HttpStatusCode, string)> answer)
                     {
                         var calls = new List<string>();
-                        RoutedCaptureHandler handler = null!;
-                        handler = new RoutedCaptureHandler(() =>
+                        ScriptedReplyHandler handler = null!;
+                        handler = new ScriptedReplyHandler(() =>
                         {
                             var uri = handler.LastRequestUri!;
                             var key = uri.Host + uri.AbsolutePath;
@@ -23751,6 +23751,20 @@ internal static class Program
     /// </remarks>
     private const string ExpectedRedactedLoadFailure =
         @"Could not load file or assembly '%LOCALAPPDATA%\Programs\HyperWhisper\HyperWhisper.SharedCore.dll'. An Application Control policy has blocked this file. (0x800711C7)";
+
+    private sealed class ScriptedReplyHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpResponseMessage> _respond;
+        public Uri? LastRequestUri;
+
+        public ScriptedReplyHandler(Func<HttpResponseMessage> respond) => _respond = respond;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastRequestUri = request.RequestUri;
+            return Task.FromResult(_respond());
+        }
+    }
 
     private const string ScriptedEndpointModel = "m-741";
 
