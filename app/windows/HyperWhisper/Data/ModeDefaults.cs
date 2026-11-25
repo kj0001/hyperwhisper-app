@@ -6,31 +6,57 @@ namespace HyperWhisper.Data;
 /// <summary>
 /// MODE DEFAULTS
 ///
-/// The Windows head's view of THE .NET first-install seeder. Every field, the
-/// mode count and both catalog lookups live in
-/// <see cref="PortableModeDefaults"/>, which reads them from the shared Rust
-/// core (<c>hw-catalog::mode_seed</c>).
-///
-/// This used to be a second, hand-maintained copy of the same six modes. The
-/// two .NET heads compile ONE <c>Mode</c> entity (HyperWhisper.csproj removes
-/// <c>Data\Entities\**\*.cs</c> from this assembly and
-/// HyperWhisper.Application link-compiles them), so there is nothing to
-/// translate between the heads and no reason for a second seeder to exist.
-/// Windows and Linux/portable now differ only in WHERE the emptiness guard
-/// lives: DatabaseInitializer here, ApplicationDb there.
+/// The Windows fork's first-install mode seeder. Seeds a single local mode
+/// (<see cref="DefaultModeId"/>) using Whisper <c>large-v3-turbo</c> with
+/// post-processing disabled so fresh installs make zero outbound network
+/// requests unless the user explicitly configures an API key or downloads a
+/// local model.
 /// </summary>
 public static class ModeDefaults
 {
     /// <summary>
-    /// The seeded mode's well-known id, shared with macOS. An alias of
-    /// <see cref="PortableModeDefaults.HyperModeId"/> so the onboarding
-    /// restore-point lookups that anchor on it keep reading one value.
+    /// The seeded mode's well-known id, shared with macOS and anchored by
+    /// onboarding restore-point lookups.
     /// </summary>
     public static readonly Guid DefaultModeId = PortableModeDefaults.HyperModeId;
 
     /// <summary>
-    /// The modes a brand-new install starts with: exactly one, from the shared
-    /// core, carrying the system region's spelling variant.
+    /// The modes a brand-new install starts with: exactly one local mode
+    /// carrying the system region's spelling variant.
     /// </summary>
-    public static List<Mode> GetDefaultModes() => [.. PortableModeDefaults.CreateForCurrentRegion()];
+    public static List<Mode> GetDefaultModes()
+    {
+        var now = DateTime.UtcNow;
+        return
+        [
+            new Mode
+            {
+                Id = DefaultModeId,
+                Name = "Hyper",
+                Preset = "hyper",
+                Language = "auto",
+                ProviderType = "local",
+                LocalEngine = "whisper",
+                Model = "large-v3-turbo",
+                ModelType = "large-v3-turbo",
+                CloudProvider = null,
+                CloudAccuracyTier = null,
+                CloudTranscriptionModel = null,
+                PostProcessingMode = 0,
+                PostProcessingProvider = null,
+                CloudPostProcessingModel = null,
+                EnglishSpelling = PortableModeDefaults.EnglishSpellingForCurrentRegion(),
+                Punctuation = true,
+                Capitalization = true,
+                ProfanityFilter = false,
+                CustomInstructions = null,
+                EnableScreenOCR = false,
+                IsDefault = true,
+                IsSystemProvided = true,
+                SortOrder = 0,
+                CreatedDate = now,
+                ModifiedDate = now
+            }
+        ];
+    }
 }

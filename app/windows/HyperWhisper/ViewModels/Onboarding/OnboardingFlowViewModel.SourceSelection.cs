@@ -54,15 +54,6 @@ public sealed partial class OnboardingFlowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// The HyperWhisper Cloud access key. Editing it invalidates any pass, so a
-    /// stale result can never open the gate.
-    /// </summary>
-    [ObservableProperty]
-    private string _licenseKeyInput = string.Empty;
-
-    partial void OnLicenseKeyInputChanged(string value) => InvalidateLicenseValidation();
-
     /// <summary>The BYOK API key for the selected provider.</summary>
     [ObservableProperty]
     private string _apiKeyInput = string.Empty;
@@ -90,9 +81,7 @@ public sealed partial class OnboardingFlowViewModel : ViewModelBase
         CancelCredentialValidation();
 
         ClearValidationPass();
-        LicenseTestPassed = null;
         ProviderTestHealth = null;
-        _activationErrorMessage = null;
         _providerErrorMessage = null;
 
         if (source == OnboardingSourceKind.OnDevice && SelectedModel is null)
@@ -131,17 +120,6 @@ public sealed partial class OnboardingFlowViewModel : ViewModelBase
         InvalidateProviderValidation();
     }
 
-    // KeyValidated is derived from the scope comparison, so editing either field or
-    // changing provider closes it with no help from these two. They exist to clear
-    // the inline RESULT surface (the tick, the health pill, the error line), which is
-    // display state and genuinely stored.
-    private void InvalidateLicenseValidation()
-    {
-        LicenseTestPassed = null;
-        _activationErrorMessage = null;
-        RefreshSetupError();
-    }
-
     private void InvalidateProviderValidation()
     {
         ProviderTestHealth = null;
@@ -161,9 +139,7 @@ public sealed partial class OnboardingFlowViewModel : ViewModelBase
             return;
 
         IsTestingKey = false;
-        LicenseTestPassed = null;
         ProviderTestHealth = null;
-        _activationErrorMessage = null;
         _providerErrorMessage = null;
         ClearValidationPass();
         RefreshSetupError();

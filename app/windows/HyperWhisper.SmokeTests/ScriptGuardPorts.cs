@@ -907,6 +907,8 @@ internal static class ScriptGuardPorts
                     var mode = ModeDefaults.GetDefaultModes().Single();
                     mode.Id = Guid.NewGuid();
                     mode.Name = name;
+                    mode.ProviderType = "cloud";
+                    mode.CloudProvider = "openai";
                     mode.Language = language;
                     mode.RemoveTrailingPeriod = removeTrailingPeriod;
                     mode.PostProcessingMode = 0;

@@ -42,7 +42,13 @@ public partial class StreamingSettingsPage : Page
 
         RefreshLanguageOptions();
 
-        SelectComboBoxItemByTag(ProviderBox, _settings.StreamingProvider);
+        var selectedProvider = _settings.StreamingProvider;
+        if (string.IsNullOrWhiteSpace(selectedProvider)
+            || string.Equals(selectedProvider, "hyperwhisperCloud", System.StringComparison.OrdinalIgnoreCase))
+        {
+            selectedProvider = "deepgram";
+        }
+        SelectComboBoxItemByTag(ProviderBox, selectedProvider);
         // A model name is a proper noun and lives in the catalog only. These 2 rows used to
         // read it from a key copied into 40 translation files (#837).
         foreach (var item in DeepgramModelBox.Items.OfType<ComboBoxItem>())
@@ -52,13 +58,6 @@ public partial class StreamingSettingsPage : Page
         }
         SelectComboBoxItemByTag(DeepgramModelBox, _settings.StreamingDeepgramModel);
         FastFormattingCheckbox.IsChecked = _settings.StreamingFastFormatting;
-
-        // Catalog-driven, so a third live vendor needs no edit here or in the XAML.
-        CloudTierBox.ItemsSource = CloudSttCatalog.Shared
-            .StreamingCloudTierEntries()
-            .Select(entry => new CloudTierChoice(entry.Id, TierLabel(entry.Id)))
-            .ToList();
-        CloudTierBox.SelectedValue = _settings.StreamingCloudTier;
 
         _isInitializing = false;
         UpdateStreamingOptionsVisibility();
@@ -197,19 +196,23 @@ public partial class StreamingSettingsPage : Page
         }
     }
 
+    private static StreamingTranscriptionProvider EffectiveByokProvider(string? storageValue)
+    {
+        var parsed = StreamingTranscriptionProviderExtensions.FromStorageValue(storageValue);
+        return parsed == StreamingTranscriptionProvider.HyperWhisperCloud
+            ? StreamingTranscriptionProvider.Deepgram
+            : parsed;
+    }
+
     private void UpdateProviderPanels()
     {
-        var provider = StreamingTranscriptionProviderExtensions.FromStorageValue(_settings.StreamingProvider);
+        var provider = EffectiveByokProvider(_settings.StreamingProvider);
         DeepgramPanel.Visibility = provider == StreamingTranscriptionProvider.Deepgram
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        HyperWhisperCloudPanel.Visibility = provider == StreamingTranscriptionProvider.HyperWhisperCloud
             ? Visibility.Visible
             : Visibility.Collapsed;
 
         ProviderStatusText.Text = provider switch
         {
-            StreamingTranscriptionProvider.HyperWhisperCloud => Loc.S("settings.streaming.providerStatus.hyperwhisperCloud"),
             StreamingTranscriptionProvider.Deepgram => ApiKeyService.Instance.HasApiKey(TranscriptionApiKeyType.Deepgram)
                 ? Loc.S("settings.streaming.providerStatus.deepgram.configured")
                 : Loc.S("settings.streaming.providerStatus.deepgram.missingKey"),
@@ -225,7 +228,7 @@ public partial class StreamingSettingsPage : Page
             StreamingTranscriptionProvider.GeminiTranscribe => ApiKeyService.Instance.HasApiKey(TranscriptionApiKeyType.GeminiTranscribe)
                 ? Loc.S("settings.streaming.providerStatus.geminiTranscribe.configured")
                 : Loc.S("settings.streaming.providerStatus.geminiTranscribe.missingKey"),
-            _ => Loc.S("settings.streaming.providerStatus.hyperwhisperCloud")
+            _ => Loc.S("settings.streaming.providerStatus.deepgram.missingKey")
         };
 
         UpdateVocabularyWarning();
@@ -259,7 +262,7 @@ public partial class StreamingSettingsPage : Page
             return;
         }
 
-        var provider = StreamingTranscriptionProviderExtensions.FromStorageValue(_settings.StreamingProvider);
+        var provider = EffectiveByokProvider(_settings.StreamingProvider);
         // Ask the shared core, never a second provider list — see
         // StreamingTranscriptionSessionFactory.SupportsVocabulary, which reads
         // hw_net::live::supports_vocabulary (issue #281) with no credential and
@@ -287,37 +290,6 @@ public partial class StreamingSettingsPage : Page
         VocabularyWarningPanel.Visibility = Visibility.Collapsed;
     }
 
-    private void CloudTierBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_isInitializing) return;
-
-        if (CloudTierBox.SelectedValue is string tier)
-        {
-            _settings.StreamingCloudTier = tier;
-            // Each live tier declares its own language set.
-            RefreshLanguageOptions();
-            // The Deepgram tier drops vocabulary in auto-detect and the Gemini tier
-            // does not, so the warning below the picker changes with this selection.
-            UpdateVocabularyWarning();
-            LoggingService.Info($"StreamingSettingsPage: Streaming cloud tier set to {tier}");
-        }
-    }
-
-    /// <summary>
-    /// The row label is the tier's own catalog name — "ElevenLabs Scribe v2".
-    ///
-    /// It used to read <c>modes.cloudAccuracy.&lt;id&gt;.label</c> first and fall
-    /// back to the catalog. The 40 translated copies of that key were the same
-    /// English proper noun 40 times over, and a name is never translated, so
-    /// #837 deleted them and left the fallback as the only path. This picker
-    /// chooses a TIER (one live upstream route), not a company, so it draws the
-    /// entry's <c>displayName</c> rather than the vendor group's.
-    /// </summary>
-    private static string TierLabel(string tierId)
-        => CloudSttCatalog.Shared.GetById(tierId)?.DisplayName ?? tierId;
-
-    private sealed record CloudTierChoice(string Id, string Label);
-
     /// <summary>
     /// Binds the language picker to the selected provider's own language set and
     /// resets a saved language that falls outside it to the first row
@@ -327,7 +299,7 @@ public partial class StreamingSettingsPage : Page
     /// </summary>
     private void RefreshLanguageOptions()
     {
-        var provider = StreamingTranscriptionProviderExtensions.FromStorageValue(_settings.StreamingProvider);
+        var provider = EffectiveByokProvider(_settings.StreamingProvider);
         var allowed = AllowedLanguages(LanguageCatalogEntryId(provider, _settings.StreamingCloudTier));
         var language = ResolveAllowedLanguage(_settings.StreamingLanguage, allowed);
 

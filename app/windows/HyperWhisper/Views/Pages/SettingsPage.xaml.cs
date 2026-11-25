@@ -59,8 +59,6 @@ public partial class SettingsPage : Page
             "General" => new GeneralSettingsPage(),
             "Appearance" => new AppearanceSettingsPage(),
             "Sound" => new SoundSettingsPage(),
-            // "License" / "Credits" are legacy aliases for the unified Cloud panel.
-            "Cloud" or "License" or "Credits" => new CloudAccountSettingsPage(),
             "Storage" => new StorageSettingsPage(),
             "Output" => new OutputSettingsPage(),
             "Shortcuts" => new ShortcutsSettingsPage(),
@@ -75,12 +73,9 @@ public partial class SettingsPage : Page
 
     public void SelectSection(string sectionTag)
     {
-        // Normalize legacy deep-links ("License" / "Credits") onto the unified Cloud tag.
-        var normalized = sectionTag is "License" or "Credits" ? "Cloud" : sectionTag;
-
         foreach (var item in SectionList.Items)
         {
-            if (item is ListBoxItem listBoxItem && listBoxItem.Tag?.ToString() == normalized)
+            if (item is ListBoxItem listBoxItem && listBoxItem.Tag?.ToString() == sectionTag)
             {
                 SectionList.SelectedItem = listBoxItem;
                 return;

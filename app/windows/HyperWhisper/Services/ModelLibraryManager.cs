@@ -80,7 +80,7 @@ public sealed class ModelLibraryManager
 
     private IEnumerable<LibraryModel> BuildCloudTranscriptionRows(ApiKeyPresence keys)
     {
-        foreach (var model in CloudTranscriptionModels.All.Where(m => m.IsAvailable))
+        foreach (var model in CloudTranscriptionModels.All.Where(m => m.IsAvailable && m.Provider.RequiresApiKey()))
         {
             var providerKey = SharedModelsCatalog.CatalogKey(model.Provider);
             var lang = SharedModelsCatalog.GetLanguageSupport(providerKey, CatalogKind.Voice, model.Id);
@@ -99,10 +99,8 @@ public sealed class ModelLibraryManager
                 Accuracy = CloudAccuracy(model.Id),
                 Detail = model.Description,
                 SupportsCustomVocabulary = SharedModelsCatalog.SupportsCustomVocabulary(providerKey, CatalogKind.Voice, model.Id),
-                AvailableViaHyperWhisperCloud = SharedModelsCatalog.AvailableViaHyperWhisperCloud(providerKey, CatalogKind.Voice, model.Id),
                 SupportedLanguages = lang.Codes.ToArray(),
                 SupportsAllLanguages = lang.SupportsAll,
-                IsHyperWhisperProvider = model.Provider == CloudTranscriptionProvider.HyperWhisperCloud,
                 Payload = model
             };
         }
@@ -111,7 +109,6 @@ public sealed class ModelLibraryManager
     private IEnumerable<LibraryModel> BuildWhisperRows()
     {
         var vocab = SharedModelsCatalog.SupportsCustomVocabulary(SharedModelsCatalog.LocalWhisperKey, CatalogKind.Voice, "*");
-        var cloud = SharedModelsCatalog.AvailableViaHyperWhisperCloud(SharedModelsCatalog.LocalWhisperKey, CatalogKind.Voice, "*");
         foreach (var model in WhisperModelInfo.AllModels)
         {
             var installed = _whisper.IsModelDownloaded(model);
@@ -135,7 +132,6 @@ public sealed class ModelLibraryManager
                 Detail = $"Requires {model.RecommendedVramDisplay} VRAM",
                 DetailToolTip = unsupportedReason ?? $"Requires {model.RecommendedVramDisplay} VRAM",
                 SupportsCustomVocabulary = vocab,
-                AvailableViaHyperWhisperCloud = cloud,
                 // Multilingual Whisper covers the full base language set; the
                 // `.en` variants are English-only.
                 SupportedLanguages = model.IsEnglishOnly ? new[] { "en" } : Array.Empty<string>(),
@@ -148,7 +144,6 @@ public sealed class ModelLibraryManager
     private IEnumerable<LibraryModel> BuildParakeetRows()
     {
         var vocab = SharedModelsCatalog.SupportsCustomVocabulary(SharedModelsCatalog.ParakeetKey, CatalogKind.Voice, "*");
-        var cloud = SharedModelsCatalog.AvailableViaHyperWhisperCloud(SharedModelsCatalog.ParakeetKey, CatalogKind.Voice, "*");
         foreach (var model in ParakeetModelInfo.AllModels)
         {
             var installed = _parakeet.IsModelDownloaded(model);
@@ -179,7 +174,6 @@ public sealed class ModelLibraryManager
                 Detail = string.Join(", ", model.SupportedLanguages.Take(8)) + (model.SupportedLanguages.Length > 8 ? "..." : ""),
                 DetailToolTip = unsupportedReason,
                 SupportsCustomVocabulary = vocab,
-                AvailableViaHyperWhisperCloud = cloud,
                 SupportedLanguages = parakeetLangs,
                 SupportsAllLanguages = false,
                 Payload = model
@@ -189,7 +183,9 @@ public sealed class ModelLibraryManager
 
     private IEnumerable<LibraryModel> BuildPostProcessingRows(ApiKeyPresence keys)
     {
-        foreach (var model in LanguageModelInfo.AvailableModels.Where(m => m.Provider != PostProcessingProvider.LocalLlm))
+        foreach (var model in LanguageModelInfo.AvailableModels.Where(
+                     m => m.Provider != PostProcessingProvider.LocalLlm
+                          && m.Provider != PostProcessingProvider.HyperWhisperCloud))
         {
             var providerKey = SharedModelsCatalog.CatalogKey(model.Provider);
             yield return new LibraryModel
@@ -207,8 +203,6 @@ public sealed class ModelLibraryManager
                 Accuracy = PostAccuracy(model.Id),
                 Detail = model.Description,
                 SupportsCustomVocabulary = SharedModelsCatalog.SupportsCustomVocabulary(providerKey, CatalogKind.Text, model.Id),
-                AvailableViaHyperWhisperCloud = SharedModelsCatalog.AvailableViaHyperWhisperCloud(providerKey, CatalogKind.Text, model.Id),
-                IsHyperWhisperProvider = model.Provider == PostProcessingProvider.HyperWhisperCloud,
                 Payload = model
             };
         }
@@ -217,7 +211,6 @@ public sealed class ModelLibraryManager
     private IEnumerable<LibraryModel> BuildLocalLlmRows()
     {
         var vocab = SharedModelsCatalog.SupportsCustomVocabulary(SharedModelsCatalog.LocalLlmKey, CatalogKind.Text, "*");
-        var cloud = SharedModelsCatalog.AvailableViaHyperWhisperCloud(SharedModelsCatalog.LocalLlmKey, CatalogKind.Text, "*");
         foreach (var model in LocalLlmModelInfo.AllModels)
         {
             var installed = _localLlm.IsModelDownloaded(model);
@@ -261,7 +254,6 @@ public sealed class ModelLibraryManager
                     ? $"{model.Description} {unsupportedReason}"
                     : $"{model.Description} Requires {model.RecommendedVramDisplay} VRAM. {runtimeGuidance}",
                 SupportsCustomVocabulary = vocab,
-                AvailableViaHyperWhisperCloud = cloud,
                 Payload = model
             };
         }
@@ -348,7 +340,6 @@ public sealed class ModelLibraryManager
                 Tag = endpoint.LastTestSuccess == true ? "Verified" : null,
                 Detail = $"{endpoint.DisplayURL} - {endpoint.ModelName}",
                 SupportsCustomVocabulary = false,
-                AvailableViaHyperWhisperCloud = false,
                 Payload = endpoint
             };
         }

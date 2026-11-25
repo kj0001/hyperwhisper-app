@@ -133,36 +133,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- Anonymous Speed Data Card -->
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,20">
-                <StackPanel>
-                    <!-- Anonymous Speed Data Toggle -->
-                    <!-- Sharing is the default. Turning this off makes every
-                         HyperWhisper Cloud transcription send X-Latency-Opt-Out: 1
-                         (the shared core adds it from TranscribeParams), and the
-                         server drops the measurement instead of storing it. -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <StackPanel>
-                            <TextBlock Text="{loc:Loc settings.general.shareSpeedData.title}" FontSize="14" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock Text="{loc:Loc settings.general.shareSpeedData.subtitle}"
-                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                                       Margin="0,2,0,0" TextWrapping="Wrap"/>
-                        </StackPanel>
-
-                        <CheckBox x:Name="ShareSpeedDataCheckbox" Grid.Column="1"
-                                  VerticalAlignment="Center"
-                                  Checked="ShareSpeedDataCheckbox_Checked"
-                                  Unchecked="ShareSpeedDataCheckbox_Unchecked"/>
-                    </Grid>
-                </StackPanel>
-            </Border>
-
             <TextBlock x:Name="VersionText"
                        FontSize="12"
                        Foreground="{DynamicResource TextSecondaryBrush}"

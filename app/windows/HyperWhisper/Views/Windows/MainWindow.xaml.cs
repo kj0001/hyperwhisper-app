@@ -55,10 +55,6 @@ public partial class MainWindow : Window
         _viewModel = (MainViewModel)DataContext;
         _viewModel.PropertyChanged += (s, e) => { if (e.PropertyName == nameof(MainViewModel.CurrentPage)) NavigateToPage(_viewModel.CurrentPage, _viewModel.TakePendingSettingsSection()); };
 
-        // The nav rail is its own control now (issue #570); it reports the credits
-        // call to action rather than navigating, because navigation lives here.
-        Sidebar.CloudCreditsRequested += CloudCreditsSidebar_Click;
-
         // No back UI, so the journal would only keep every visited page alive (issue #977).
         FrameJournal.KeepNoBackStack(ContentFrame);
 
@@ -158,7 +154,6 @@ public partial class MainWindow : Window
         });
 
         InitializeSystemTray();
-        LicenseManager.Instance.LicenseStatusChanged += OnLicenseStatusChanged;
 
         // SINGLE-INSTANCE: Listen for broadcast from a second instance trying to launch
         SourceInitialized += (s, e) =>
@@ -179,7 +174,6 @@ public partial class MainWindow : Window
         {
             await _viewModel.OnNavigatedToAsync();
             NavigateToPage(_viewModel.CurrentPage);
-            UpdateSidebarLicenseState();
             ThemeService.Instance.ThemeChanged += OnThemeChanged;
             ApplyMacStyleWindowBackdrop();
 
@@ -258,7 +252,6 @@ public partial class MainWindow : Window
             _fileProgressWindow?.Close();
             _modeToast?.Close();
             _notifyIcon?.Dispose();
-            LicenseManager.Instance.LicenseStatusChanged -= OnLicenseStatusChanged;
             ThemeService.Instance.ThemeChanged -= OnThemeChanged;
         }
         catch (Exception ex)
@@ -318,22 +311,6 @@ public partial class MainWindow : Window
         };
         if (p is HomePage) p.DataContext = _viewModel;
         ContentFrame.Navigate(p);
-    }
-
-    private void OnLicenseStatusChanged(object? sender, EventArgs e)
-        => Dispatcher.Invoke(UpdateSidebarLicenseState);
-
-    private void UpdateSidebarLicenseState()
-    {
-        var isLicensed = LicenseManager.Instance.LicenseStatus == LicenseStatus.Active;
-        Sidebar.LicensedSidebarCard.Visibility = isLicensed ? Visibility.Visible : Visibility.Collapsed;
-        Sidebar.CloudSidebarActions.Visibility = isLicensed ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    private void CloudCreditsSidebar_Click(object? sender, EventArgs e)
-    {
-        // Open the combined Cloud account / credits + license activation panel.
-        NavigateToSettingsSection("License");
     }
 
     // One navigation, not two: the CurrentPage change carries the section (#637).

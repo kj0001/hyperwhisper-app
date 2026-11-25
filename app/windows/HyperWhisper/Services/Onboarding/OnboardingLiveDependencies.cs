@@ -91,8 +91,6 @@ public static class OnboardingLiveDependencies
             parakeetModels,
             ModelDownloadService.Instance);
 
-        var license = new LiveOnboardingLicenseGateway(LicenseManager.Instance);
-        var credits = new LiveOnboardingCreditsGateway(HyperWhisperCloudManager.Instance);
         var providerKeys = new LiveOnboardingProviderKeyGateway(
             ApiKeyService.Instance,
             CloudProviderHealthService.Instance);
@@ -126,8 +124,6 @@ public static class OnboardingLiveDependencies
         var flow = new OnboardingFlowViewModel(
             permissions,
             catalog,
-            license,
-            credits,
             providerKeys,
             audio,
             committer,
@@ -141,7 +137,7 @@ public static class OnboardingLiveDependencies
         // resolve a singleton.
         flow.ReadAutoPasteEnabled = () => SettingsService.Instance.AutoPasteEnabled;
 
-        return new LiveOnboarding(flow, new IDisposable[] { audio, recorder, deviceService, credits, catalog });
+        return new LiveOnboarding(flow, new IDisposable[] { audio, recorder, deviceService, catalog });
     }
 
     /// <summary>

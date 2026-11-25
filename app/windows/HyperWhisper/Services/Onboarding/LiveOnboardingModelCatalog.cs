@@ -133,7 +133,7 @@ public sealed class LiveOnboardingModelCatalog : IOnboardingModelCatalog, IDispo
             new OnboardingModelSelection(
                 "parakeet-v2", OnboardingModelKind.Parakeet,
                 "Parakeet V2", "onboarding.model.parakeetV2.subtitle",
-                ParakeetSize("parakeet-v2"), 5, 3, IsRecommended: true),
+                ParakeetSize("parakeet-v2"), 5, 3, IsRecommended: false),
             new OnboardingModelSelection(
                 "parakeet-v3", OnboardingModelKind.Parakeet,
                 "Parakeet V3", "onboarding.model.parakeetV3.subtitle",
@@ -145,7 +145,7 @@ public sealed class LiveOnboardingModelCatalog : IOnboardingModelCatalog, IDispo
             new OnboardingModelSelection(
                 "large-v3-turbo", OnboardingModelKind.Whisper,
                 "Whisper Large v3 Turbo", "onboarding.model.whisperTurbo.subtitle",
-                WhisperSize("large-v3-turbo"), 4, 3, IsRecommended: false),
+                WhisperSize("large-v3-turbo"), 4, 3, IsRecommended: true),
         };
     }
 
@@ -231,7 +231,6 @@ public sealed class LiveOnboardingModelCatalog : IOnboardingModelCatalog, IDispo
             Speed = model.Speed,
             Accuracy = model.Accuracy,
             SupportsCustomVocabulary = false,
-            AvailableViaHyperWhisperCloud = false,
             Payload = payload
         };
     }

@@ -29,17 +29,9 @@ public sealed partial class OnboardingFlowViewModel : ViewModelBase
                 // Fully offline: local model, post-processing off.
                 OnboardingSourceKind.OnDevice => new OnboardingStagedSource(
                     OnboardingSourceKind.OnDevice,
-                    SelectedModel?.Id ?? "base",
+                    SelectedModel?.Id ?? "large-v3-turbo",
                     null,
-                    0,
-                    null),
-
-                OnboardingSourceKind.HyperWhisperCloud => new OnboardingStagedSource(
-                    OnboardingSourceKind.HyperWhisperCloud,
-                    "cloud",
-                    "hyperwhisper",
-                    1,
-                    CloudAccuracyTier.ElevenLabsScribeV2.ToStorageValue()),
+                    0),
 
                 // Post-processing off by default so first run never fails on a
                 // missing post-processing key.
@@ -47,8 +39,7 @@ public sealed partial class OnboardingFlowViewModel : ViewModelBase
                     OnboardingSourceKind.YourProvider,
                     "cloud",
                     SelectedProvider.GetIdentifier(),
-                    0,
-                    null),
+                    0),
 
                 _ => null
             };
