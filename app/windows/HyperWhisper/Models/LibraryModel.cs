@@ -69,7 +69,6 @@ public sealed class LibraryModel
     public int Speed { get; init; }
     public int Accuracy { get; init; }
     public required bool SupportsCustomVocabulary { get; init; }
-    public required bool AvailableViaHyperWhisperCloud { get; init; }
     /// <summary>
     /// Base ISO language codes (region/script stripped, e.g. "en", "es", "zh")
     /// this voice model can transcribe, for the Model Library language filter.
@@ -80,16 +79,10 @@ public sealed class LibraryModel
     public IReadOnlyCollection<string> SupportedLanguages { get; init; } = Array.Empty<string>();
     /// <summary>
     /// True when the model passes every language filter — text models,
-    /// Whisper-family, Gemini, Google Chirp, etc. Defaulted so non-voice rows
+    /// Whisper-family, Gemini, etc. Defaulted so non-voice rows
     /// need not set it.
     /// </summary>
     public bool SupportsAllLanguages { get; init; } = true;
-    /// <summary>
-    /// True when this row's own provider IS HyperWhisper Cloud — used to
-    /// suppress the "HyperWhisper Cloud" pill on the row that already says it
-    /// in its provider name. Defaults to false so non-HWC rows behave normally.
-    /// </summary>
-    public bool IsHyperWhisperProvider { get; init; }
     public double? DownloadProgress { get; init; }
     public object? Payload { get; init; }
 

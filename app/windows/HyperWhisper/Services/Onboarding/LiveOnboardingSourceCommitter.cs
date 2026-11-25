@@ -113,7 +113,7 @@ public sealed class LiveOnboardingSourceCommitter : IOnboardingSourceCommitter
         mode.PostProcessingMode = staged.PostProcessingMode;
         mode.CloudProvider = staged.CloudProvider;
         mode.CloudTranscriptionModel = null;
-        mode.CloudAccuracyTier = staged.CloudAccuracyTier ?? mode.CloudAccuracyTier;
+        mode.CloudAccuracyTier = null;
 
         if (staged.Source == OnboardingSourceKind.OnDevice)
         {

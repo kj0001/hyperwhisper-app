@@ -18,17 +18,8 @@ namespace HyperWhisper.Views.Controls;
 /// </remarks>
 public partial class SidebarNav : System.Windows.Controls.UserControl
 {
-    /// <summary>
-    /// Raised when the Cloud credits call to action at the foot of the rail is clicked.
-    /// The rail knows nothing about navigation; MainWindow owns that.
-    /// </summary>
-    public event EventHandler? CloudCreditsRequested;
-
     public SidebarNav()
     {
         InitializeComponent();
     }
-
-    private void CloudCreditsSidebar_Click(object sender, RoutedEventArgs e)
-        => CloudCreditsRequested?.Invoke(this, EventArgs.Empty);
 }

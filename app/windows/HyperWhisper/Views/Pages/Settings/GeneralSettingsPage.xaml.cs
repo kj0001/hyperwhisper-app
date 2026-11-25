@@ -73,19 +73,12 @@ public partial class GeneralSettingsPage : Page
         SendAppContextCheckbox.Checked += SendAppContextCheckbox_Checked;
         SendAppContextCheckbox.Unchecked += SendAppContextCheckbox_Unchecked;
 
-        // Load anonymous speed data state from settings
-        ShareSpeedDataCheckbox.Checked -= ShareSpeedDataCheckbox_Checked;
-        ShareSpeedDataCheckbox.Unchecked -= ShareSpeedDataCheckbox_Unchecked;
-        ShareSpeedDataCheckbox.IsChecked = SettingsService.Instance.ShareAnonymousSpeedData;
-        ShareSpeedDataCheckbox.Checked += ShareSpeedDataCheckbox_Checked;
-        ShareSpeedDataCheckbox.Unchecked += ShareSpeedDataCheckbox_Unchecked;
-
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         var shortVersion = version?.ToString(3) ?? "Unknown";
         var buildVersion = version?.Revision.ToString() ?? "0";
         VersionText.Text = Loc.S("settings.version.detail", shortVersion, buildVersion);
 
-        LoggingService.Debug($"GeneralSettingsPage: Initialized (startup={startupEnabled}, startupAvailable={startupAvailable}, launchMinimized={SettingsService.Instance.LaunchMinimized}, minimizeToTray={SettingsService.Instance.MinimizeToTray}, showRecordingWindow={SettingsService.Instance.ShowRecordingWindow}, shareSpeedData={SettingsService.Instance.ShareAnonymousSpeedData})");
+        LoggingService.Debug($"GeneralSettingsPage: Initialized (startup={startupEnabled}, startupAvailable={startupAvailable}, launchMinimized={SettingsService.Instance.LaunchMinimized}, minimizeToTray={SettingsService.Instance.MinimizeToTray}, showRecordingWindow={SettingsService.Instance.ShowRecordingWindow})");
     }
 
     // =========================================================================
@@ -202,25 +195,5 @@ public partial class GeneralSettingsPage : Page
     {
         SettingsService.Instance.SendAppContextToPostProcessing = false;
         LoggingService.Info("GeneralSettingsPage: Disabled sending active app context to post-processing");
-    }
-
-    // =========================================================================
-    // ANONYMOUS SPEED DATA
-    // =========================================================================
-    //
-    // The setting is read once per transcription, where the cloud services build
-    // their core TranscribeParams, so a change applies to the very next
-    // transcription — nothing to start or stop here.
-
-    private void ShareSpeedDataCheckbox_Checked(object sender, RoutedEventArgs e)
-    {
-        SettingsService.Instance.ShareAnonymousSpeedData = true;
-        LoggingService.Info("GeneralSettingsPage: Enabled anonymous speed data sharing");
-    }
-
-    private void ShareSpeedDataCheckbox_Unchecked(object sender, RoutedEventArgs e)
-    {
-        SettingsService.Instance.ShareAnonymousSpeedData = false;
-        LoggingService.Info("GeneralSettingsPage: Disabled anonymous speed data sharing");
     }
 }

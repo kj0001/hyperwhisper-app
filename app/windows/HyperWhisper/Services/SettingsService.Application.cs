@@ -73,10 +73,10 @@ public partial class SettingsService
     /// </summary>
     public bool ShareAnonymousSpeedData
     {
-        get => _settings.ShareAnonymousSpeedData ?? true;
+        get => _settings.ShareAnonymousSpeedData ?? false;
         set
         {
-            if ((_settings.ShareAnonymousSpeedData ?? true) != value)
+            if ((_settings.ShareAnonymousSpeedData ?? false) != value)
             {
                 _settings.ShareAnonymousSpeedData = value;
                 Save();
