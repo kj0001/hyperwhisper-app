@@ -27844,6 +27844,93 @@ internal static class Program
                 }
             });
 
+            Run("app context privacy (#5): opt-in default false, fail-closed IsPassword, and full Sensitive redaction", () =>
+            {
+                // 1. IsPasswordFieldOrUnknown fails closed
+                Assert(ApplicationContextService.IsPasswordFieldOrUnknown(() => true),
+                    "IsPassword=true must return true");
+                Assert(!ApplicationContextService.IsPasswordFieldOrUnknown(() => false),
+                    "IsPassword=false must return false");
+                Assert(ApplicationContextService.IsPasswordFieldOrUnknown(() => throw new InvalidOperationException("UIA unavailable")),
+                    "throwing IsPassword getter must fail closed as true");
+
+                var prevSendContext = SettingsService.Instance.SendAppContextToPostProcessing;
+                var prevUseJargon = SettingsService.Instance.UseJargonFile;
+                var prevSeeded = SettingsService.Instance.JargonFileSeeded;
+                var jargonPath = AppPaths.JargonFilePath;
+                try
+                {
+                    // 2. Default opt-in setting is false
+                    Assert(!prevSendContext, "SendAppContextToPostProcessing should default to false");
+
+                    // 3. With SendAppContextToPostProcessing = false, no window/browser/focused text or machine name is emitted,
+                    //    while #1's <JARGON_GUIDE> remains intact.
+                    SettingsService.Instance.SendAppContextToPostProcessing = false;
+                    SettingsService.Instance.UseJargonFile = true;
+                    SettingsService.Instance.JargonFileSeeded = false;
+                    if (File.Exists(jargonPath)) File.Delete(jargonPath);
+
+                    var normalCtx = new Services.ApplicationContext
+                    {
+                        ProcessName = "chrome",
+                        WindowTitle = "Private Bank Tab",
+                        BrowserHost = "bank.example",
+                        BrowserTabTitle = "Private Bank Tab",
+                        FocusedElementType = "Edit",
+                        FocusedContent = "account 1234",
+                        AppType = AppType.Other,
+                        Category = "Browser",
+                        TextFormat = "text"
+                    };
+
+                    var optOutInfo = PromptBuilder.SystemInfo(new Mode { Preset = "hyper" }, applicationContext: normalCtx);
+                    Assert(!optOutInfo.Contains("chrome", StringComparison.Ordinal)
+                           && !optOutInfo.Contains("Private Bank Tab", StringComparison.Ordinal)
+                           && !optOutInfo.Contains("bank.example", StringComparison.Ordinal)
+                           && !optOutInfo.Contains("account 1234", StringComparison.Ordinal)
+                           && !optOutInfo.Contains(Environment.MachineName, StringComparison.Ordinal),
+                        $"opt-out SystemInfo leaked app context or machine name: {optOutInfo}");
+
+                    var optOutPrompt = PromptBuilder.SystemPrompt(new Mode { Preset = "hyper" }, applicationContext: normalCtx);
+                    Assert(optOutPrompt.Contains("<JARGON_GUIDE>", StringComparison.Ordinal),
+                        "opt-out SystemPrompt must still preserve #1's <JARGON_GUIDE>");
+
+                    // 4. With SendAppContextToPostProcessing = true and Sensitive app, all app/tab/host/element/content/machine fields are stripped
+                    SettingsService.Instance.SendAppContextToPostProcessing = true;
+                    var sensitiveCtx = new Services.ApplicationContext
+                    {
+                        ProcessName = "1Password",
+                        WindowTitle = "Vault - Login",
+                        BrowserHost = "vault.bitwarden.com",
+                        BrowserTabTitle = "Vault - Login",
+                        FocusedElementType = "Edit",
+                        FocusedContent = "supersecret",
+                        AppType = AppType.Sensitive,
+                        Category = "Password Manager",
+                        TextFormat = "text"
+                    };
+
+                    var sensitiveInfo = PromptBuilder.SystemInfo(new Mode { Preset = "hyper" }, applicationContext: sensitiveCtx);
+                    Assert(!sensitiveInfo.Contains("1Password", StringComparison.Ordinal)
+                           && !sensitiveInfo.Contains("Vault - Login", StringComparison.Ordinal)
+                           && !sensitiveInfo.Contains("vault.bitwarden.com", StringComparison.Ordinal)
+                           && !sensitiveInfo.Contains("supersecret", StringComparison.Ordinal)
+                           && !sensitiveInfo.Contains("<APP>", StringComparison.Ordinal)
+                           && !sensitiveInfo.Contains("<TAB>", StringComparison.Ordinal)
+                           && !sensitiveInfo.Contains("<BROWSER_HOST>", StringComparison.Ordinal)
+                           && !sensitiveInfo.Contains("<FOCUSED_ELEMENT>", StringComparison.Ordinal)
+                           && !sensitiveInfo.Contains(Environment.MachineName, StringComparison.Ordinal),
+                        $"Sensitive app SystemInfo leaked context: {sensitiveInfo}");
+                }
+                finally
+                {
+                    if (File.Exists(jargonPath)) File.Delete(jargonPath);
+                    SettingsService.Instance.SendAppContextToPostProcessing = prevSendContext;
+                    SettingsService.Instance.UseJargonFile = prevUseJargon;
+                    SettingsService.Instance.JargonFileSeeded = prevSeeded;
+                }
+            });
+
             Console.WriteLine(_failures == 0
                 ? "All smoke tests passed."
                 : $"{_failures} smoke test(s) FAILED.");

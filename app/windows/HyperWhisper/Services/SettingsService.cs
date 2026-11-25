@@ -172,6 +172,9 @@ public partial class SettingsService
         public bool? UseJargonFile { get; set; }
         public bool? JargonFileSeeded { get; set; }
 
+        // App context privacy (Windows-local opt-in; not promoted to universal backup snapshot)
+        public bool? SendAppContextToPostProcessing { get; set; }
+
         // First-run onboarding. NULLABLE IS LOAD-BEARING: null means "this install
         // never wrote it", which ApplyDefaults turns into true only when there was
         // no settings.json at all. Every pre-existing install defaults to false.
@@ -872,6 +875,21 @@ public partial class SettingsService
                 _settings.JargonFileSeeded = value;
                 Save();
                 LoggingService.Debug($"SettingsService: JargonFileSeeded set to: {value}");
+                NotifySettingsChanged();
+            }
+        }
+    }
+
+    public bool SendAppContextToPostProcessing
+    {
+        get => _settings.SendAppContextToPostProcessing ?? false;
+        set
+        {
+            if ((_settings.SendAppContextToPostProcessing ?? false) != value)
+            {
+                _settings.SendAppContextToPostProcessing = value;
+                Save();
+                LoggingService.Debug($"SettingsService: SendAppContextToPostProcessing set to: {value}");
                 NotifySettingsChanged();
             }
         }
