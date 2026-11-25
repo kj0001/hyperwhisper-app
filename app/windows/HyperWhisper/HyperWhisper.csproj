@@ -69,10 +69,6 @@
     <!-- The app-type classifier, shared with the Linux head since issue #279.
          It used to be Services\AppClassification\AppTypeClassifier.cs here. -->
     <ProjectReference Include="..\..\shared-dotnet\HyperWhisper.AppClassification\HyperWhisper.AppClassification.csproj" />
-    <!-- The shared Local API server, hosted by this head since issue #356 item 6.
-         It used to be Services\LocalApi\Endpoints\ here, a second
-         implementation of the same routes. -->
-    <ProjectReference Include="..\..\shared-dotnet\HyperWhisper.LocalApi\HyperWhisper.LocalApi.csproj" />
     <!-- The stdio client for the Whisper worker exe. Managed only: no Whisper.net. -->
     <ProjectReference Include="..\HyperWhisper.WhisperWorker.Client\HyperWhisper.WhisperWorker.Client.csproj" />
   </ItemGroup>
@@ -96,14 +92,6 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-  </ItemGroup>
-
-  <!-- Local HTTP API (Settings → Local API) -->
-  <!-- Kestrel/minimal-API host bound to 127.0.0.1; bearer token stored via
-       DPAPI (System.Security.Cryptography.ProtectedData ships in-box on
-       net10.0-windows). -->
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <!-- Copy app icon to output directory -->

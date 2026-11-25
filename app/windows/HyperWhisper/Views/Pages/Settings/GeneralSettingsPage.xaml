@@ -153,10 +153,6 @@
                             <TextBlock Text="{loc:Loc settings.general.shareSpeedData.subtitle}"
                                        FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                        Margin="0,2,0,0" TextWrapping="Wrap"/>
-                            <TextBlock FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap">
-                                <Hyperlink RequestNavigate="Hyperlink_RequestNavigate" Foreground="{DynamicResource AccentBrush}"
-                                           NavigateUri="https://www.hyperwhisper.com/en/latency"><Run Text="{loc:Loc settings.general.shareSpeedData.link}"/></Hyperlink>
-                            </TextBlock>
                         </StackPanel>
 
                         <CheckBox x:Name="ShareSpeedDataCheckbox" Grid.Column="1"
@@ -165,26 +161,6 @@
                                   Unchecked="ShareSpeedDataCheckbox_Unchecked"/>
                     </Grid>
                 </StackPanel>
-            </Border>
-
-            <!-- Support Card -->
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,20">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Text="{loc:Loc settings.general.support.title}"
-                               FontSize="14" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}"
-                               VerticalAlignment="Center"/>
-
-                    <Button Grid.Column="1"
-                            Style="{StaticResource MacButtonStyle}"
-                            Content="{loc:Loc menu.command.contact.support}"
-                            Click="ContactSupport_Click"/>
-                </Grid>
             </Border>
 
             <TextBlock x:Name="VersionText"

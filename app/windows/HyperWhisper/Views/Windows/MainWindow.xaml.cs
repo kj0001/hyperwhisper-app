@@ -648,10 +648,6 @@ public partial class MainWindow : Window
             };
 
             menu.Items.Add("-");
-            menu.Items.Add(Loc.S("settings.resources.help.center"), null, (s, e) => OpenUrl("https://hyperwhisper.com/docs"));
-            menu.Items.Add(Loc.S("settings.resources.contact.support"), null, (s, e) => OpenUrl("https://www.hyperwhisper.com/en/support"));
-            menu.Items.Add(Loc.S("settings.resources.feedback"), null, (s, e) => OpenUrl("https://hyperwhisper.userjot.com"));
-            menu.Items.Add("-");
             var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "Unknown";
             menu.Items.Add(new WinForms.ToolStripLabel(Loc.S("menu.version.label", version)) { Enabled = false });
             menu.Items.Add("-");
@@ -716,27 +712,6 @@ public partial class MainWindow : Window
         {
             _viewModel.CurrentPage = page.Value;
             NavigateToPage(page.Value);
-        }
-    }
-
-    private static void OpenUrl(string url)
-    {
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = url,
-                UseShellExecute = true
-            });
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Warn($"Failed to open URL '{url}': {ex.Message}");
-            System.Windows.MessageBox.Show(
-                Loc.S("settings.general.support.openFailed", ex.Message),
-                Loc.S("common.error"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
         }
     }
 

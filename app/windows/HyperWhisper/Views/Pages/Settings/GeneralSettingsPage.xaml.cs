@@ -2,11 +2,9 @@
 // Handles general application settings including startup and window behavior.
 
 using System;
-using System.Diagnostics;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Navigation;
 using HyperWhisper.Localization;
 using HyperWhisper.Services;
 
@@ -224,36 +222,5 @@ public partial class GeneralSettingsPage : Page
     {
         SettingsService.Instance.ShareAnonymousSpeedData = false;
         LoggingService.Info("GeneralSettingsPage: Disabled anonymous speed data sharing");
-    }
-
-    private void Hyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e)
-    {
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = e.Uri.AbsoluteUri,
-            UseShellExecute = true
-        });
-        e.Handled = true;
-    }
-
-    private void ContactSupport_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "https://www.hyperwhisper.com/support",
-                UseShellExecute = true
-            });
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Error("GeneralSettingsPage: Failed to open support page", ex);
-            WpfMessageBox.Show(
-                Loc.S("settings.general.support.openFailed", ex.Message),
-                Loc.S("common.error"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
     }
 }

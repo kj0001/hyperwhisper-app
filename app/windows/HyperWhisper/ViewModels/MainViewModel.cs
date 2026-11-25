@@ -22,7 +22,6 @@ using HyperWhisper.FileTranscription;
 using HyperWhisper.Models;
 using HyperWhisper.Localization;
 using HyperWhisper.Services;
-using HyperWhisper.Services.LocalApi;
 using HyperWhisper.Services.Streaming;
 using HyperWhisper.Services.Transcription;
 using HyperWhisper.Utilities;
@@ -339,11 +338,6 @@ public partial class MainViewModel : ViewModelBase
     // no restart.
     // =========================================================================
 
-    /// <summary>
-    /// Test seam: the smoke suite substitutes its own predicate. Null in the app,
-    /// which reads <see cref="WindowsLocalApiBackend.CloudAccountKeyPresent"/>, the
-    /// predicate the transcription path refuses on with MISSING_API_KEY.
-    /// </summary>
     internal Func<bool>? CloudAccountKeyPresentOverride { get; set; }
 
     /// <summary>Test seam: null in the app, which uses <see cref="ApiKeyService.Instance"/>.</summary>
@@ -362,7 +356,12 @@ public partial class MainViewModel : ViewModelBase
         ProviderHealthOverride ?? CloudProviderHealthService.Instance;
 
     private bool CloudAccountKeyPresent() =>
-        (CloudAccountKeyPresentOverride ?? WindowsLocalApiBackend.CloudAccountKeyPresent)();
+        (CloudAccountKeyPresentOverride ?? (() => LicenseManager.Instance.GetTranscriptionIdentifier().IsLicensed))();
+
+    private static bool UsesCloudAccountKey(CloudTranscriptionProvider provider) => provider is
+        CloudTranscriptionProvider.HyperWhisperCloud
+        or CloudTranscriptionProvider.MicrosoftAzureSpeech
+        or CloudTranscriptionProvider.GoogleSpeech;
 
     // =========================================================================
     // DICTATION SEAMS (#2241)
@@ -486,7 +485,7 @@ public partial class MainViewModel : ViewModelBase
         CloudTranscriptionProvider provider, bool cloudAccountKeyPresent, bool hasApiKey,
         ProviderHealth health)
     {
-        if (WindowsLocalApiBackend.UsesCloudAccountKey(provider))
+        if (UsesCloudAccountKey(provider))
             return cloudAccountKeyPresent ? "status.model.ready" : "status.model.notActivated";
 
         // None has no key slot; it is not a provider this can judge, so it keeps
@@ -1834,7 +1833,7 @@ public partial class MainViewModel : ViewModelBase
                 ? providerName
                 : $"{providerName} - {model.DisplayName}";
             // Read only the credential this provider needs (#649).
-            var usesAccountKey = WindowsLocalApiBackend.UsesCloudAccountKey(provider);
+            var usesAccountKey = UsesCloudAccountKey(provider);
             var statusKey = CloudModelStatusKey(
                 provider,
                 cloudAccountKeyPresent: usesAccountKey && CloudAccountKeyPresent(),

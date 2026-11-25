@@ -63,7 +63,6 @@ public partial class SettingsPage : Page
             "Cloud" or "License" or "Credits" => new CloudAccountSettingsPage(),
             "Storage" => new StorageSettingsPage(),
             "Output" => new OutputSettingsPage(),
-            "LocalApi" => new LocalApiSettingsPage(),
             "Shortcuts" => new ShortcutsSettingsPage(),
             "Backup" => new BackupExportSettingsPage(),
             "About" => new AboutSettingsPage(),

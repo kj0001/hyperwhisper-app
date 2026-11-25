@@ -18,7 +18,6 @@ using HyperWhisper.Data.Entities;
 using HyperWhisper.Localization;
 using HyperWhisper.Models;
 using HyperWhisper.Services;
-using HyperWhisper.Services.LocalApi;
 using HyperWhisper.Services.Streaming;
 using HyperWhisper.Services.Transcription;
 using HyperWhisper.Utilities;
@@ -112,30 +111,6 @@ internal static class ScriptGuardPorts
                 TryDeleteDirectory(outsideDir);
                 TryDeleteDirectory(siblingDir);
             }
-        });
-
-        run("local api: only a socket bind failure on a remembered port retries on an ephemeral port (#830)", () =>
-        {
-            // A remembered port another app took would otherwise stop the Local API
-            // for good; any other startup failure must still surface as fatal.
-            const int remembered = 48123;
-            var accessDenied = new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.AccessDenied);
-            var inUse = new IOException("Failed to bind",
-                new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.AddressAlreadyInUse));
-
-            Assert(LocalApiBindFallback.ShouldRetryWithEphemeral(accessDenied, remembered),
-                "a bare WSAEACCES on the remembered port did not retry");
-            Assert(LocalApiBindFallback.ShouldRetryWithEphemeral(inUse, remembered),
-                "an IOException wrapping WSAEADDRINUSE on the remembered port did not retry");
-            Assert(LocalApiBindFallback.ShouldRetryWithEphemeral(
-                    new InvalidOperationException("An attempt was made to access a socket in a way forbidden by its access permissions"), remembered),
-                "Kestrel's access-permissions message did not retry");
-            Assert(LocalApiBindFallback.ShouldRetryWithEphemeral(new InvalidOperationException("address already in use"), remembered),
-                "Kestrel's address-in-use message did not retry");
-            Assert(!LocalApiBindFallback.ShouldRetryWithEphemeral(accessDenied, 0),
-                "a failure on an ephemeral port retried again (it would loop)");
-            Assert(!LocalApiBindFallback.ShouldRetryWithEphemeral(new InvalidOperationException("route registration failed"), remembered),
-                "a non-bind startup failure was retried instead of failing");
         });
 
         run("transcription: a repeated-phrase loop collapses to one copy, ordinary text is untouched (#830)", () =>
@@ -569,50 +544,6 @@ internal static class ScriptGuardPorts
             {
                 Assert(provider.RequiresApiKey() == (provider != StreamingTranscriptionProvider.HyperWhisperCloud),
                     $"{provider}: RequiresApiKey() is {provider.RequiresApiKey()}");
-            }
-        });
-
-        run("local api: a /transcribe file reached through a junction under a trusted root is refused (#830, #740)", () =>
-        {
-            // A token holder could plant a junction in the recordings folder and have
-            // the app read (and upload) any file it points at. The opened handle's
-            // real path decides, not the string the caller sent.
-            var id = Guid.NewGuid().ToString("N");
-            var root = AppPaths.ProfileTempRecordingsDirectory;
-            var outsideDir = Path.Combine(Path.GetTempPath(), "HyperWhisper.SmokeTests", $"junction-target-{id}");
-            var junction = Path.Combine(root, $"g830-junction-{id}");
-            var realFile = Path.Combine(root, $"g830-real-{id}.wav");
-            var viaJunction = Path.Combine(junction, "secret.wav");
-            try
-            {
-                Directory.CreateDirectory(root);
-                Directory.CreateDirectory(outsideDir);
-                File.WriteAllBytes(Path.Combine(outsideDir, "secret.wav"), new byte[] { 1, 2, 3, 4 });
-                File.WriteAllBytes(realFile, new byte[] { 1, 2, 3, 4 });
-                var mklink = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junction}\" \"{outsideDir}\"")
-                {
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                })!;
-                mklink.WaitForExit(10_000);
-                Assert(mklink.ExitCode == 0 && File.Exists(viaJunction),
-                    $"could not create the junction fixture (exit {mklink.ExitCode}): {mklink.StandardError.ReadToEnd()}");
-                Assert(HistoryService.IsTrustedAudioPath(viaJunction),
-                    "precondition: the junction path should look trusted by its string alone");
-
-                using (var real = new FileStream(realFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-                    Assert(LocalApiFilePolicy.VerifyOpenedFile(real), "a real file in the recordings folder was refused");
-                using (var planted = new FileStream(viaJunction, FileMode.Open, FileAccess.Read, FileShare.Read))
-                    Assert(!LocalApiFilePolicy.VerifyOpenedFile(planted), "a file reached through a junction to outside the roots was accepted");
-            }
-            finally
-            {
-                // A junction is removed as a link; its target folder stays until deleted below.
-                try { if (Directory.Exists(junction)) Directory.Delete(junction); } catch { }
-                TryDeleteFile(realFile);
-                TryDeleteDirectory(outsideDir);
             }
         });
 
