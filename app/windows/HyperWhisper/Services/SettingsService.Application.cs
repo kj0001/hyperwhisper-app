@@ -56,20 +56,8 @@ public partial class SettingsService
     }
 
     /// <summary>
-    /// Whether to contribute anonymous speed measurements to the public
-    /// latency page at hyperwhisper.com/en/latency.
-    ///
-    /// When enabled, every HyperWhisper Cloud transcription adds one anonymous
-    /// row per provider attempt: which provider ran, from which server region,
-    /// how long the clip was, how long the provider took, and whether it
-    /// worked. No account, no key, no request id, no IP, no audio, and no text
-    /// — nothing links two rows to the same person.
-    ///
-    /// When disabled, the app sends the X-Latency-Opt-Out header and the server
-    /// drops the measurement instead of storing it. Nothing else about the
-    /// request changes. Local models never report anything either way.
-    ///
-    /// Default: true (opt-out model)
+    /// Legacy persisted setting for sharing anonymous speed measurements.
+    /// Disabled by default (false) in this hardened local/BYOK fork.
     /// </summary>
     public bool ShareAnonymousSpeedData
     {

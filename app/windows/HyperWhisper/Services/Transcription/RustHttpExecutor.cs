@@ -114,11 +114,8 @@ internal static class RustHttpExecutor
     /// </remarks>
     internal static HttpRequestMessage BuildRequestMessage(HttpRequest request)
     {
-        // Prefer HTTP/2, falling back to 1.1 when the server does not offer it,
-        // the same as HyperWhisperCloudService.CreateRequest. SendAsync ignores
-        // HttpClient.DefaultRequestVersion, so a message with no Version goes out
-        // as HTTP/1.1 and cannot reuse the connection the /warmup HEAD opened over
-        // HTTP/2: the first Cloud upload paid its own TCP + TLS handshake (#982).
+        // Prefer HTTP/2, falling back to 1.1 when the server does not offer it.
+        // SendAsync ignores HttpClient.DefaultRequestVersion, so Version is set explicitly.
         var message = new HttpRequestMessage(MapMethod(request.@method), request.@url)
         {
             Version = HttpVersion.Version20,
