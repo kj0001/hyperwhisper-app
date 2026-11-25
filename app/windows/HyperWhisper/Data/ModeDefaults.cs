@@ -44,7 +44,7 @@ public static class ModeDefaults
                 CloudTranscriptionModel = null,
                 PostProcessingMode = 0,
                 PostProcessingProvider = null,
-                CloudPostProcessingModel = null,
+                CloudPostProcessingModel = string.Empty,
                 EnglishSpelling = PortableModeDefaults.EnglishSpellingForCurrentRegion(),
                 Punctuation = true,
                 Capitalization = true,
