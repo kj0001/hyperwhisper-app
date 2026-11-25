@@ -93,6 +93,7 @@ function Invoke-VerifyOutputs {
     $exePath = Join-Path $Dir "parakeet-engine.exe"
     $stdout = & $exePath 2>&1
     $exitCode = $LASTEXITCODE
+    $global:LASTEXITCODE = 0
     if ($exitCode -ne 2) {
         throw "parakeet-engine.exe smoke launch returned exit code $exitCode (expected 2 for missing args). Output: $($stdout -join ' ')"
     }
@@ -210,3 +211,4 @@ Move-Item -Path $VadTmp -Destination $VadDest -Force
 Write-Host "Staged silero_vad.onnx ($((Get-Item $VadDest).Length) bytes, SHA-256 $downloadedHash)"
 
 Invoke-VerifyOutputs -Dir $OutputDir
+exit 0
