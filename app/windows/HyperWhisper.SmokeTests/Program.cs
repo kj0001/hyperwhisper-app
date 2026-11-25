@@ -27732,6 +27732,26 @@ internal static class Program
                 }
             });
 
+            Run("startup network gating (#3): appcast and cloud warmup respect auto-update and license state", () =>
+            {
+                Assert(!MainViewModel.ShouldLoadRecentReleasesOnStartup(false),
+                    "startup appcast fetch must be skipped when CheckForUpdatesAutomatically is false");
+                Assert(MainViewModel.ShouldLoadRecentReleasesOnStartup(true),
+                    "startup appcast fetch should run when CheckForUpdatesAutomatically is true");
+
+                var cloudMode = new Mode { ProviderType = "cloud", CloudProvider = "hyperwhisper" };
+                var localMode = new Mode { ProviderType = "local" };
+
+                Assert(!TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(cloudMode, hasStoredLicenseKey: false),
+                    "unlicensed installs must not send HyperWhisper Cloud warmup pings");
+                Assert(TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(cloudMode, hasStoredLicenseKey: true),
+                    "licensed HyperWhisper Cloud mode should prewarm connection");
+                Assert(!TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(localMode, hasStoredLicenseKey: true),
+                    "local mode must never prewarm HyperWhisper Cloud");
+                Assert(!TranscriptionProviderFactory.ShouldPrewarmHyperWhisperCloud(null, hasStoredLicenseKey: true),
+                    "null mode must never prewarm HyperWhisper Cloud");
+            });
+
             Console.WriteLine(_failures == 0
                 ? "All smoke tests passed."
                 : $"{_failures} smoke test(s) FAILED.");
