@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      ready_to_run:
+        description: "Compile ReadyToRun (CrossGen2) images for faster app startup"
+        required: false
+        type: boolean
+        default: true
   pull_request:
     branches: [main]
     paths:
@@ -29,12 +34,37 @@ jobs:
   build-portable-x64:
     name: Build Portable App (Windows x64, unsigned)
     runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+      NUGET_XMLDOC_MODE: skip
     steps:
       # ----------------------------------------------------------------
       # 1. Checkout
       # ----------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Exclude build paths from Windows Defender
+        shell: pwsh
+        run: |
+          $paths = @(
+            $env:GITHUB_WORKSPACE,
+            $env:RUNNER_TEMP,
+            (Join-Path $env:USERPROFILE ".nuget"),
+            (Join-Path $env:USERPROFILE ".cargo"),
+            (Join-Path $env:USERPROFILE ".rustup")
+          )
+          foreach ($p in $paths) {
+            if ($p) {
+              try {
+                Add-MpPreference -ExclusionPath $p -ErrorAction Stop
+              } catch {
+                Write-Warning "Could not exclude '$p' from Windows Defender: $_"
+              }
+            }
+          }
 
       # ----------------------------------------------------------------
       # 2. Setup .NET 10 SDK
@@ -43,12 +73,27 @@ jobs:
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: "10.0.x"
-          dotnet-quality: "preview"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: windows-nuget-v1-${{ hashFiles('app/windows/**/*.csproj', 'app/shared-dotnet/**/*.csproj') }}
+          restore-keys: |
+            windows-nuget-v1-
 
       # ----------------------------------------------------------------
-      # 3. Cache the Rust build (shared with Windows CI)
+      # 3. Cache the Rust shared core DLL and build fallback (shared with Windows CI)
       # ----------------------------------------------------------------
+      - name: Cache x64 Rust shared core DLL
+        id: cache-rust-core-dll
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: app/windows/HyperWhisper/Resources/rust-core/x64/hyperwhisper_core.dll
+          key: windows-rust-core-dll-x64-${{ hashFiles('shared-core-rs/Cargo.toml', 'shared-core-rs/Cargo.lock', 'shared-core-rs/rust-toolchain.toml', 'shared-core-rs/crates/**', 'shared-app-classification/**', 'shared-models/**', 'shared-prompts/**', 'shared-backup/hyperwhisper-backup.schema.json') }}
+
       - name: Cache cargo registry and target dir
+        if: steps.cache-rust-core-dll.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -63,13 +108,14 @@ jobs:
       # 4. Build the Rust shared core (x64)
       # ----------------------------------------------------------------
       - name: Build Rust shared core (x64)
+        if: steps.cache-rust-core-dll.outputs.cache-hit != 'true'
         working-directory: shared-core-rs
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           rustup show
           rustup target add x86_64-pc-windows-msvc
-          cargo build --release --target x86_64-pc-windows-msvc
+          cargo build --release --target x86_64-pc-windows-msvc -p hw-core
           if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
 
           $dest = "..\app\windows\HyperWhisper\Resources\rust-core\x64"
@@ -112,16 +158,18 @@ jobs:
           $publishDir = "app\windows\HyperWhisper\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish"
           if (Test-Path $publishDir) { Remove-Item -Recurse -Force $publishDir }
 
+          $r2r = if ('${{ inputs.ready_to_run }}' -eq 'false') { 'false' } else { 'true' }
+
           dotnet publish app\windows\HyperWhisper\HyperWhisper.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:SkipWhisperWorkerCopy=true `
-            -p:PublishReadyToRun=true
+            -p:PublishReadyToRun=$r2r
           if ($LASTEXITCODE -ne 0) { throw "HyperWhisper publish failed with exit code $LASTEXITCODE" }
 
           $workerDir = Join-Path $publishDir "whisper-worker"
           dotnet publish app\windows\HyperWhisper.WhisperWorker\HyperWhisper.WhisperWorker.csproj `
             -c Release -r win-x64 --self-contained true `
-            -p:PublishReadyToRun=true `
+            -p:PublishReadyToRun=$r2r `
             -o $workerDir
           if ($LASTEXITCODE -ne 0) { throw "WhisperWorker publish failed with exit code $LASTEXITCODE" }
 
@@ -207,6 +255,7 @@ jobs:
         with:
           name: HyperWhisper-win-x64-portable
           path: app/windows/HyperWhisper/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish
+          compression-level: 1
           if-no-files-found: error
           retention-days: 14
 
