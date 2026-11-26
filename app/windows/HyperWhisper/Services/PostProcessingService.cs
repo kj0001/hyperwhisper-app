@@ -380,7 +380,7 @@ public class PostProcessingService : IDisposable
         }
         catch (Exception ex) when (!isCustomEndpoint && provider == PostProcessingProvider.LocalLlm)
         {
-            LoggingService.Error($"PostProcessingService: Local LLM failed: {ex.Message}");
+            LoggingService.Error("PostProcessingService: Local LLM failed", ex);
             WarningOccurred?.Invoke(this, new ErrorToastEventArgs(
                 Loc.S("postprocessing.error.failed"),
                 showSettingsButton: true,
@@ -389,7 +389,7 @@ public class PostProcessingService : IDisposable
         }
         catch (Exception ex)
         {
-            LoggingService.Error($"PostProcessingService: Failed: {ex.Message}");
+            LoggingService.Error("PostProcessingService: Failed", ex);
             WarningOccurred?.Invoke(this, new ErrorToastEventArgs(
                 Loc.S("postprocessing.error.failed")));
             return PostProcessingResult.Skipped(text);

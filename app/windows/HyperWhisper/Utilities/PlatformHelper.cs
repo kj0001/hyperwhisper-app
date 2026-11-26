@@ -1,5 +1,6 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using HyperWhisper.Services;
 
 namespace HyperWhisper.Utilities;
@@ -72,6 +73,49 @@ public static class PlatformHelper
             "native",
             "cuda12",
             "llama.dll"));
+
+    /// <summary>
+    /// True when a CUDA 12 Toolkit installation is present on the host
+    /// (<c>CUDA_PATH</c> with <c>cublas64_12.dll</c>, <c>cudart64_12.dll</c>,
+    /// and a 12.x <c>version.json</c>). Without it, LLamaSharp's <c>cuda12</c>
+    /// backend fails to load even when the shipped DLLs exist in <c>runtimes/</c>.
+    /// </summary>
+    public static bool HasSystemCuda12Runtime =>
+        HasCuda12ToolkitAt(Environment.GetEnvironmentVariable("CUDA_PATH"));
+
+    internal static bool HasCuda12ToolkitAt(string? cudaPath)
+    {
+        if (string.IsNullOrWhiteSpace(cudaPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var binDir = Path.Combine(cudaPath, "bin");
+            if (!File.Exists(Path.Combine(binDir, "cublas64_12.dll"))
+                || !File.Exists(Path.Combine(binDir, "cudart64_12.dll")))
+            {
+                return false;
+            }
+
+            var versionPath = Path.Combine(cudaPath, "version.json");
+            if (!File.Exists(versionPath))
+            {
+                return false;
+            }
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(versionPath));
+            return doc.RootElement.TryGetProperty("libcublas", out var cublas)
+                && cublas.TryGetProperty("version", out var version)
+                && version.GetString() is { } versionStr
+                && versionStr.StartsWith("12.", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     public static bool HasLocalLlmVulkanRuntime =>
         RuntimeInformation.ProcessArchitecture == Architecture.X64

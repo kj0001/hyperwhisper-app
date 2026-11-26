@@ -73,6 +73,7 @@ public static class LocalLlmGpuHelper
             gpu.Name,
             gpu.IsDiscreteForMl,
             hasCudaRuntime: PlatformHelper.HasLocalLlmCudaRuntime
+                && PlatformHelper.HasSystemCuda12Runtime
                 && restrictToBackend is null or LocalLlmBackend.Cuda,
             hasVulkanRuntime: PlatformHelper.HasLocalLlmVulkanRuntime
                 && restrictToBackend is null or LocalLlmBackend.Vulkan,

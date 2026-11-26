@@ -5262,6 +5262,38 @@ internal static class Program
                     "vulkan-pinned AMD should plan CPU");
             });
 
+            Run("PlatformHelper.HasCuda12ToolkitAt requires CUDA 12 DLLs and version.json", () =>
+            {
+                Assert(!PlatformHelper.HasCuda12ToolkitAt(null), "null CUDA_PATH should return false");
+                Assert(!PlatformHelper.HasCuda12ToolkitAt(""), "empty CUDA_PATH should return false");
+
+                var tempRoot = Path.Combine(Path.GetTempPath(), $"hw-cuda12-probe-{Guid.NewGuid():N}");
+                try
+                {
+                    var binDir = Path.Combine(tempRoot, "bin");
+                    Directory.CreateDirectory(binDir);
+                    Assert(!PlatformHelper.HasCuda12ToolkitAt(tempRoot), "missing DLLs and version.json should return false");
+
+                    File.WriteAllText(Path.Combine(binDir, "cublas64_12.dll"), "");
+                    File.WriteAllText(Path.Combine(binDir, "cudart64_12.dll"), "");
+                    Assert(!PlatformHelper.HasCuda12ToolkitAt(tempRoot), "missing version.json should return false");
+
+                    var versionPath = Path.Combine(tempRoot, "version.json");
+                    File.WriteAllText(versionPath, "{\"libcublas\":{\"version\":\"12.6.3\"}}");
+                    Assert(PlatformHelper.HasCuda12ToolkitAt(tempRoot), "valid CUDA 12 toolkit layout should return true");
+
+                    File.WriteAllText(versionPath, "{\"libcublas\":{\"version\":\"13.0.1\"}}");
+                    Assert(!PlatformHelper.HasCuda12ToolkitAt(tempRoot), "CUDA 13 toolkit should not match CUDA 12");
+                }
+                finally
+                {
+                    if (Directory.Exists(tempRoot))
+                    {
+                        Directory.Delete(tempRoot, recursive: true);
+                    }
+                }
+            });
+
             Run("GPU name classification gates local-LLM offload eligibility", () =>
             {
                 static bool EligibleForMl(string name) => new GpuInfoService.GpuInfo

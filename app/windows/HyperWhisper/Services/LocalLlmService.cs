@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using HyperWhisper.Models;
+using HyperWhisper.Utilities;
 using LLama;
 using LLama.Common;
 using LLama.Native;
@@ -45,6 +48,21 @@ public sealed class LocalLlmService : IDisposable
     /// </summary>
     private static LocalLlmBackend? _processNativeBackend;
     private static readonly object ProcessBackendLock = new();
+    private static readonly NativeLogConfig.LLamaLogCallback NativeLogHandler = LogLlamaSharpMessage;
+
+    private static void LogLlamaSharpMessage(LLamaLogLevel level, string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return;
+        var cleaned = UserPathRedactor.RedactUserIdentifiers(message.TrimEnd('\r', '\n'));
+        if (level is LLamaLogLevel.Error or LLamaLogLevel.Warning)
+        {
+            LoggingService.Warn($"[LLamaSharp] {cleaned}");
+        }
+        else
+        {
+            LoggingService.Debug($"[LLamaSharp] {cleaned}");
+        }
+    }
 
     public bool IsModelLoaded => _weights != null;
     public string? ActiveModelPath => _activeModelPath;
@@ -248,6 +266,11 @@ public sealed class LocalLlmService : IDisposable
         var gpuLayerCount = plan.GpuLayerCount;
         var backendId = LocalLlmGpuHelper.BackendId(plan.Backend);
 
+        LoggingService.Info(
+            $"LocalLlmService: Loading {Path.GetFileName(modelPath)} (backend={LocalLlmGpuHelper.BackendDisplayName(plan.Backend)}, " +
+            $"gpuLayers={gpuLayerCount}, cudaFiles={PlatformHelper.HasLocalLlmCudaRuntime}, systemCuda12={PlatformHelper.HasSystemCuda12Runtime}, " +
+            $"vulkanFiles={PlatformHelper.HasLocalLlmVulkanRuntime}, systemVulkan={PlatformHelper.HasSystemVulkanLoader})");
+
         try
         {
             var parameters = CreateParameters(modelPath, gpuLayerCount);
@@ -284,14 +307,27 @@ public sealed class LocalLlmService : IDisposable
             }
             throw;
         }
-        catch when (gpuLayerCount > 0)
+        catch (TypeInitializationException ex)
+        {
+            if (gpuLayerCount > 0 && backendId != null)
+            {
+                ClearGpuLoadSentinel(modelPath, backendId);
+            }
+            LoggingService.Error(
+                $"LocalLlmService: LLamaSharp native runtime failed to initialize ({LocalLlmGpuHelper.BackendDisplayName(plan.Backend)} backend)",
+                ex);
+            LoggingService.LogRuntimesDirectory();
+            throw;
+        }
+        catch (Exception ex) when (gpuLayerCount > 0)
         {
             if (backendId != null)
             {
                 ClearGpuLoadSentinel(modelPath, backendId);
             }
-            LoggingService.Warn(
-                $"LocalLlmService: {LocalLlmGpuHelper.BackendDisplayName(plan.Backend)} load failed, retrying with CPU backend");
+            LoggingService.Error(
+                $"LocalLlmService: {LocalLlmGpuHelper.BackendDisplayName(plan.Backend)} load failed, retrying with CPU backend",
+                ex);
             UnloadModel();
             var parameters = CreateParameters(modelPath, gpuLayerCount: 0);
             _weights = await Task.Run(() => LLamaWeights.LoadFromFile(parameters), cancellationToken);
@@ -321,22 +357,62 @@ public sealed class LocalLlmService : IDisposable
                 return chosen;
             }
 
+            try
+            {
+                NativeLibraryConfig.All.WithLogCallback(NativeLogHandler);
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Warn("LocalLlmService: Failed to register LLamaSharp log callback", ex);
+            }
+
             if (desiredBackend == LocalLlmBackend.Vulkan)
             {
                 try
                 {
                     var vulkanDir = Path.Combine(
                         AppContext.BaseDirectory, "runtimes", "win-x64", "native", "vulkan");
-                    NativeLibraryConfig.All.WithLibrary(
-                        Path.Combine(vulkanDir, "llama.dll"),
-                        Path.Combine(vulkanDir, "mtmd.dll"));
-                    LoggingService.Info("LocalLlmService: Pinned LLamaSharp native library to the Vulkan backend");
+
+                    var preloadFailed = false;
+                    foreach (var dllName in new[] { "ggml-base.dll", "ggml-cpu.dll", "ggml-vulkan.dll", "ggml.dll" })
+                    {
+                        var dllPath = Path.Combine(vulkanDir, dllName);
+                        if (!NativeLibrary.TryLoad(dllPath, out _))
+                        {
+                            var err = Marshal.GetLastPInvokeError();
+                            var errMsg = new Win32Exception(err).Message;
+                            LoggingService.Warn(
+                                $"LocalLlmService: Failed to preload Vulkan dependency '{dllName}' (Win32 error {err}: {errMsg}); falling back to default backend selection");
+                            desiredBackend = LocalLlmBackend.None;
+                            preloadFailed = true;
+                            break;
+                        }
+                    }
+
+                    if (!preloadFailed)
+                    {
+                        NativeLibraryConfig.All.WithLibrary(
+                            Path.Combine(vulkanDir, "llama.dll"),
+                            Path.Combine(vulkanDir, "mtmd.dll"));
+                        LoggingService.Info("LocalLlmService: Pinned LLamaSharp native library to the Vulkan backend");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    LoggingService.Warn(
-                        $"LocalLlmService: Failed to pin the Vulkan native library, keeping default backend selection: {ex.Message}");
+                    LoggingService.Error("LocalLlmService: Failed to pin the Vulkan native library, keeping default backend selection", ex);
                     desiredBackend = LocalLlmBackend.None;
+                }
+            }
+
+            if (desiredBackend != LocalLlmBackend.Vulkan)
+            {
+                try
+                {
+                    NativeLibraryConfig.All.WithSearchDirectory(AppContext.BaseDirectory);
+                }
+                catch (Exception ex)
+                {
+                    LoggingService.Warn("LocalLlmService: Failed to configure LLamaSharp search directory", ex);
                 }
             }
 
