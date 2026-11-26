@@ -174,6 +174,15 @@ jobs:
           Copy-Item "target\x86_64-pc-windows-msvc\release\hyperwhisper_core.dll" "$dest\hyperwhisper_core.dll" -Force
           Write-Host "x64 DLL: $((Get-Item "$dest\hyperwhisper_core.dll").Length) bytes"
 
+      - name: Stage cached Rust shared core DLL for conformance tests
+        if: steps.cache-rust-core-dll.outputs.cache-hit == 'true'
+        shell: pwsh
+        run: |
+          $src = "app\windows\HyperWhisper\Resources\rust-core\x64\hyperwhisper_core.dll"
+          $dest = "shared-core-rs\target\x86_64-pc-windows-msvc\release"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item $src "$dest\hyperwhisper_core.dll" -Force
+
       # ----------------------------------------------------------------
       # 5. Publish the DLL as an artifact
       # ----------------------------------------------------------------
