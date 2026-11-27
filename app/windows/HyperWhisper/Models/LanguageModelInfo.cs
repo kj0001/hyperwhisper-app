@@ -93,6 +93,7 @@ public class LanguageModelInfo
         // and routes them to 3.6 / 3.8 Flash; MigrateModelId does too. 3.8 Flash is first
         // because the first row is the provider default (matches macOS).
         new("gemini-3.8-flash", "Gemini 3.8 Flash", PostProcessingProvider.Gemini, "Latest flash model, frontier performance for agentic tasks"),
+        new("gemini-4-hydrogen", "Gemini 4 Hydrogen", PostProcessingProvider.Gemini, "Fast, cost-efficient Gemini 4 workhorse model"),
         new("gemini-3.6-flash", "Gemini 3.6 Flash", PostProcessingProvider.Gemini, "Capable flash model, frontier performance for agentic tasks"),
         // gemini-2.5-flash / gemini-2.5-pro rows removed: Google deprecated both 2026-11-02 and
         // routes them to 3.5 Flash Lite / 3.8 Flash from 2026-12-01; MigrateModelId does too.

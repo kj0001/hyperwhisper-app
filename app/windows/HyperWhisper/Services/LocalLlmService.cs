@@ -49,12 +49,31 @@ public sealed class LocalLlmService : IDisposable
     private static LocalLlmBackend? _processNativeBackend;
     private static readonly object ProcessBackendLock = new();
     private static readonly NativeLogConfig.LLamaLogCallback NativeLogHandler = LogLlamaSharpMessage;
+    private static volatile bool _suppressVerboseNativeLogs;
 
     private static void LogLlamaSharpMessage(LLamaLogLevel level, string message)
     {
         if (string.IsNullOrWhiteSpace(message)) return;
-        var cleaned = UserPathRedactor.RedactUserIdentifiers(message.TrimEnd('\r', '\n'));
-        if (level is LLamaLogLevel.Error or LLamaLogLevel.Warning)
+        var trimmed = message.TrimEnd('\r', '\n');
+        if (level == LLamaLogLevel.Error)
+        {
+            LoggingService.Warn($"[LLamaSharp] {UserPathRedactor.RedactUserIdentifiers(trimmed)}");
+            return;
+        }
+
+        if (_suppressVerboseNativeLogs) return;
+
+        if (trimmed.StartsWith("llama_kv_cache", StringComparison.Ordinal)
+            || trimmed.StartsWith("graph_reserve:", StringComparison.Ordinal)
+            || trimmed.StartsWith("sched_reserve:", StringComparison.Ordinal)
+            || trimmed.StartsWith("llama_context:", StringComparison.Ordinal)
+            || trimmed.StartsWith("~llama_context:", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var cleaned = UserPathRedactor.RedactUserIdentifiers(trimmed);
+        if (level == LLamaLogLevel.Warning)
         {
             LoggingService.Warn($"[LLamaSharp] {cleaned}");
         }
@@ -279,6 +298,7 @@ public sealed class LocalLlmService : IDisposable
                 WriteGpuLoadSentinel(modelPath, gpuIdentity, backendId);
             }
             _weights = await Task.Run(() => LLamaWeights.LoadFromFile(parameters), cancellationToken);
+            _suppressVerboseNativeLogs = true;
             // GPU load survived: this model is safe on this backend + GPU, so drop
             // its crash record for THIS backend only. A crash record for a
             // different backend (e.g. the CUDA pin that routed us to Vulkan) must
@@ -331,6 +351,7 @@ public sealed class LocalLlmService : IDisposable
             UnloadModel();
             var parameters = CreateParameters(modelPath, gpuLayerCount: 0);
             _weights = await Task.Run(() => LLamaWeights.LoadFromFile(parameters), cancellationToken);
+            _suppressVerboseNativeLogs = true;
             _parameters = parameters;
             _activeModelPath = modelPath;
             IsUsingGpu = false;

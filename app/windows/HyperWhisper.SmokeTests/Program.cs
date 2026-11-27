@@ -3464,6 +3464,9 @@ internal static class Program
                     "new OpenAI modes should default to GPT-5.6 Luna");
                 Assert(LanguageModelInfo.GetDefaultForProvider(PostProcessingProvider.Gemini)?.Id == "gemini-3.8-flash",
                     "new Gemini modes should default to Gemini 3.8 Flash (matches macOS)");
+                var hydrogen = LanguageModelInfo.GetById("gemini-4-hydrogen");
+                Assert(hydrogen != null && hydrogen.Provider == PostProcessingProvider.Gemini,
+                    "gemini-4-hydrogen should be selectable under Gemini post-processing");
             });
 
             // Replays shared-conformance/pp-model-redirect-vectors.json through THIS
